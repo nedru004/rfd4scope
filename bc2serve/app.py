@@ -32,7 +32,7 @@ from . import review
 from . import storage
 from . import structure
 from . import tables
-from .jobs import JobStore
+from .jobs import JobStore, cluster_mode, cluster_settings
 
 REPO = Path(os.environ.get("BINDCRAFT_HOME", Path(__file__).resolve().parent.parent))
 STATE_DIR = Path(os.environ.get("BC2SERVE_STATE", REPO / "bc2serve_state"))
@@ -220,7 +220,9 @@ async def api_cluster(fresh: bool = False) -> dict:
     not answer" — the first is normal and the second is worth showing.
     """
     import time as _time
-    if not sge.available():
+    # The same rule the job queue follows (BC2SERVE_BACKEND, else whether qstat
+    # is here), so the page never shows a cluster the queue will not submit to.
+    if not cluster_mode():
         return {"backend": "local", "queues": [], "gpus": [], "read_at": _time.time()}
     now = _time.time()
     if not fresh and _cluster_cache["data"] and now - _cluster_cache["at"] < CLUSTER_TTL_S:
@@ -228,6 +230,11 @@ async def api_cluster(fresh: bool = False) -> dict:
     # qstat blocks for seconds; off the event loop so the rest of the UI stays live.
     data = await run_in_threadpool(sge.snapshot)
     data["backend"] = "sge"
+    # A cluster this service cannot submit to says so before anyone designs a
+    # campaign for it, not after the first one is refused.
+    why = cluster_settings()[2]
+    if why:
+        data["note"] = why + (" " + data["note"] if data.get("note") else "")
     _cluster_cache.update(at=now, data=data)
     return data
 

@@ -38,34 +38,35 @@ One factual distinction, not legal advice: the review-only install described bel
 
 ---
 
-## Two ways to install this
+## Install
 
-**The whole thing** — the launcher, the GPU queue and the review — is what the
-rest of this document describes. It needs a GPU machine and a working
-BindCraft 2, and the requirements below are its requirements.
-
-**The review on its own.** If you run BindCraft yourself, or somebody hands you
-a run folder, you need none of that. `binderscope/` is a self-contained Python
-package with its own installer and its own small app. It reads BindCraft 1 and
-BindCraft 2 run folders wherever they are, builds the review and opens it:
+One installer, three choices:
 
 ```bash
-cd binderscope && ./install.sh          # macOS; the command-line parts work on Linux too
+./install.sh
 ```
 
-No GPU, no AlphaFold weights, no BindCraft checkout, no web service, no
-account, nothing uploaded. Python 3.12 or later is the only thing it asks for,
-and it makes its own environment. `binderscope/README.md` is its documentation.
+It asks which one you want. To say it up front, or to script it:
 
-The two installs are independent and can live on the same machine: the
-review-only one keeps its projects in `~/Binderscope` and touches nothing the
-full one uses. Going the other way, the full install can review a run it did
-not start — paste the run folder's path into **A run from somewhere else** on
-its Review tab.
+| | `./install.sh --review` | `./install.sh --local` | `./install.sh --sge` |
+|---|---|---|---|
+| **What you get** | The review: read finished BindCraft 1 or 2 runs and review them in the browser | Everything, on this machine: run BindCraft 2 campaigns on its GPUs, queue them, review them | Everything, with campaigns sent to an SGE cluster as Apptainer jobs |
+| **Run it on** | macOS or Linux | Linux with NVIDIA GPUs | A Linux host that can `qsub`, usually a login node |
+| **Needs** | Python 3.12 or later (on macOS it finds or installs one) | A working BindCraft 2 checkout with its `.venv` | A BindCraft 2 checkout (its files only), a BindCraft 2 Apptainer image, the AlphaFold 2 parameters, glibc 2.28 or later |
+| **GPU and BindCraft** | Neither | Both, here | On the cluster's compute nodes |
+| **Documented in** | `binderscope/README.md` | [The full install, step by step](#the-full-install-step-by-step) | [On an SGE cluster](#on-an-sge-cluster) |
+
+`./install.sh --dry-run` shows what any of them would do and does nothing. None needs root. `./install.sh --help` lists the options.
+
+**The review on its own** is for anyone who runs BindCraft some other way, or has been handed a run folder. It is a self-contained Python package with its own installer and its own small app: no GPU, no AlphaFold weights, no BindCraft checkout, no web service, no account, nothing uploaded. `./install.sh --review` runs `binderscope/install.sh`, which can also be run directly; on macOS, double-clicking `binderscope/Install Binderscope.command` does the same.
+
+The installs are independent and can live on the same machine: the review-only one keeps its projects in `~/Binderscope` and touches nothing the full ones use. Going the other way, a full install can review a run it did not start: paste the run folder's path into **A run from somewhere else** on its Review tab.
 
 ---
 
-## Requirements
+## Requirements for the full install
+
+For `--local`. The cluster install's are under [On an SGE cluster](#on-an-sge-cluster).
 
 - An NVIDIA GPU, on the machine that will run the service. Campaigns run on it.
 - About 2.5 GB of AlphaFold weights, which BindCraft 2 loads. Binderscope does not fetch them; they are part of getting BindCraft 2 working.
@@ -102,18 +103,20 @@ So the layout you need, once everything is in place, is:
 
 ---
 
-## Install, start, connect
+## The full install, step by step
+
+`./install.sh --local` does all of this. The steps are here so you can see what it changes, or do it by hand.
 
 Do this on the machine with the GPUs. The commands assume you are in the BindCraft 2 checkout, with this repository's files laid over it, and that BindCraft 2 itself already works.
 
 **1. Install the dependencies into the BindCraft 2 environment.**
 
 ```
-.venv/bin/pip install -r bc2serve/requirements.txt
-.venv/bin/pip install ./binderscope
+.venv/bin/pip install --prefer-binary -r bc2serve/requirements.txt
+.venv/bin/pip install --prefer-binary -e ./binderscope
 ```
 
-The second line is required. `binderscope/` is the `binder_review` package, which the service imports and whose `binder-review` command it runs. It is not on PyPI, so it cannot be listed in `requirements.txt` as a version. On an older system add `--only-binary=:all:` to both commands: without it pip may try to build numpy or scipy from source and fail.
+The second line is required, and so is its `-e`. `binderscope/` is the `binder_review` package, which the service imports and whose `binder-review` command it runs. It is not on PyPI, so it cannot be listed in `requirements.txt` as a version. It is installed editable because a review needs the files beside its source: the pages in `binderscope/viewer/`, the schemas in `binderscope/docs/schema/` and the validator in `binderscope/scripts/`. A plain `pip install ./binderscope` copies the package alone, and the first review then fails with *viewer sources not found*. `--prefer-binary` takes a prebuilt package wherever there is one, rather than a newer release that would have to be compiled.
 
 **2. Install the service.**
 
@@ -168,6 +171,61 @@ The port is derived from your user id, and it **must stay stable for an account.
 
 ---
 
+## On an SGE cluster
+
+`./install.sh --sge` sets up the same service on a host that can submit jobs to an SGE (Sun or Son of Grid Engine) scheduler. Slurm is not supported.
+
+### What runs where
+
+| | Where | Under what |
+|---|---|---|
+| The service and its pages | The submit host, usually a login node | The checkout's `.venv` |
+| Each campaign | A compute node, as one SGE job | BindCraft 2 inside your Apptainer image |
+| Each review | The submit host | The checkout's `.venv`, capped at `BC2SERVE_REVIEW_JOBS` worker processes |
+
+The submit host needs the BindCraft 2 checkout for its files (the target presets in `settings/target/`), not for its GPU environment: BindCraft itself runs inside the image. Nothing on the submit host uses a GPU.
+
+### What you need
+
+- **SGE's client commands** (`qsub`, `qstat`, `qdel`) on the submit host, and **Apptainer** on the compute nodes.
+- **A BindCraft 2 Apptainer image** (`.sif`). Many clusters run GPU drivers too old for CUDA 13, so build or pull one made for CUDA 12. Binderscope does not build it.
+- **The AlphaFold 2 parameters**, the folder holding `params_model_*.npz`. Each job binds it into the image.
+- **glibc 2.28 or later on the submit host.** The service needs numpy 2.5 and scipy 1.18, whose prebuilt packages require it. On an older system (glibc 2.17 on CentOS 7, for example) they cannot be installed at all, and the installer stops and says so. The review on its own, on your own computer, still works in that case.
+- **Python 3.12 or later** on the submit host. Without root: `pip install --user uv && uv python install 3.12`, then pass `--python "$(uv python find 3.12)"`.
+
+### Install
+
+```bash
+./install.sh --sge --sif /path/to/bindcraft2-cuda12.sif --params /path/to/af2params
+```
+
+Anything you leave out, it asks for. It creates the checkout's `.venv` when there is none, installs the service's packages into it, and writes these to `bc2serve.env`:
+
+| Setting | What it is |
+|---|---|
+| `BC2SERVE_BACKEND=sge` | Send campaigns to the scheduler. `local` uses this machine's cards; unset, the service uses SGE whenever `qsub` and `qstat` are both on the path. |
+| `BC2SERVE_SGE_SIF` | The BindCraft 2 image every job runs. There is no default: without it, a campaign is refused with the reason. |
+| `BC2SERVE_SGE_PARAMS` | The AlphaFold 2 parameters folder. No default either. |
+| `BC2SERVE_SGE_QUEUE` | The queue to submit to (`--queue`). Empty means your site's default queue. |
+| `BC2SERVE_SGE_SLOTS` | Slots per campaign, 8 unless set. On clusters where a slot buys a share of a node's memory, single-worker campaigns were measured at 16 to 33 GB. |
+| `BC2SERVE_REVIEW_JOBS` | Worker processes per review, 2 here. Unset, a review takes every core but one, which suits a machine of your own and not a shared login node. |
+
+### What a job asks for
+
+Each campaign is one job: `-pe smp <slots>`, then `-l ngpus=<n>` for any card, or `-l gpu_<model>=true` for a card type chosen on the Design page. Those resource names are the ones the cluster this was written on defines. If yours names GPUs differently, `job_script` in `bc2serve/sge.py` is the one place that builds the request.
+
+The **Cluster** box on the Design page reads queue and card state from `qstat`, including per-card values (`gpu.cuda.<n>.mem_free`) that only some sites publish, and marks the queues that are yours from `whichq`, a command your site may not have. Where they are missing, the box shows less. Submitting does not depend on it.
+
+### Running the service
+
+A login node usually has no systemd user session, so the installer starts the service by hand. It then runs until you stop it, log out for good, or the node restarts; `./bc2-serve.sh` starts it again. **Check your site's rules for long-running processes on login nodes first.** You reach it the same way as on a workstation, through an SSH tunnel to the host it runs on.
+
+### Status
+
+The cluster backend is covered by tests against recorded scheduler output, and its job script follows a recipe that has run BindCraft 2 on a production SGE cluster. This repository's service has **not yet been run end to end on a cluster**, so treat your first campaign there as a test, and read its `campaign.log`.
+
+---
+
 ## One instance per person
 
 This is the architecture, not a missing feature. The service is a systemd *user* service. Each person who uses the machine runs their own, with their own port, their own queue database, their own results and their own settings, and the operating system keeps them apart. There is no multi-user mode, there are no accounts, and none is planned. If two people want to use Binderscope on one machine, each installs their own instance.
@@ -178,8 +236,9 @@ This is the architecture, not a missing feature. The service is a systemd *user*
 
 Two halves, which ship together and install together. `bc2serve` imports `binder_review`; `binder_review` knows nothing about `bc2serve`, so that a review works with no server at all.
 
-- **`bc2serve/`** is the web application. FastAPI, with the interface as plain HTML, CSS and JavaScript and no build step. It has the Design, Jobs, Results, Review and Storage tabs, the job queue and GPU allocation, and it starts and serves reviews. It also contains `sge.py`, a backend for the Grid Engine job scheduler used on some clusters. That backend is not documented here and is not needed to run on a single machine. Dependencies are in `bc2serve/requirements.txt`.
+- **`bc2serve/`** is the web application. FastAPI, with the interface as plain HTML, CSS and JavaScript and no build step. It has the Design, Jobs, Results, Review and Storage tabs, the job queue and GPU allocation, and it starts and serves reviews. It also contains `sge.py`, the backend for SGE clusters described in [On an SGE cluster](#on-an-sge-cluster); it is not needed to run on a single machine. Dependencies are in `bc2serve/requirements.txt`.
 - **`binderscope/`** is the `binder_review` package. It reads BindCraft run folders and builds a static review site that also opens straight from disk in a browser. It can be used by itself, without the web service, and it has its own `README.md` and a `docs/` directory with a page per analysis. Start with `binderscope/README.md`.
+- **`install.sh`** is the one installer: it asks which install you want and sets it up.
 - **`bc2-serve.sh`** installs and runs the service, as above. It is short and well commented, and is the most reliable account of how it is started.
 - **`LICENSE`** covers Binderscope, as set out above.
 
@@ -189,4 +248,4 @@ The project's other working notes (the architecture notes, the build plan and th
 
 ## About this document
 
-This README was written from a working install on one machine, not from a clean install on another. The install steps are believed correct and have not been run on a fresh machine. If a step does not work as written, the step is wrong, not you.
+This README was written from a working install on one machine. `./install.sh --local` and `--sge` have been run on a fresh Rocky Linux 9 machine against a stand-in BindCraft checkout and stand-in SGE commands, and a review was built through the result; neither has yet been run from scratch against a real BindCraft 2 GPU install or a real cluster. The review-only install has been run on Rocky Linux 9 with no root. If a step does not work as written, the step is wrong, not you.

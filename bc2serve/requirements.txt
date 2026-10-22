@@ -9,9 +9,10 @@
 # the service runs under (see "Layout" in the README):
 #
 #   <repo>/.venv/bin/pip install -r bc2serve/requirements.txt
-#   <repo>/.venv/bin/pip install ./binderscope
+#   <repo>/.venv/bin/pip install -e ./binderscope
 #
-# The second line is REQUIRED. See binder_review below.
+# The second line is REQUIRED, and editable. See binder_review below.
+# (./install.sh --local or --sge runs both.)
 #
 # On an older system, add --only-binary=:all: to both commands. Without it, pip
 # falls back to building numpy, scipy or biotite from source when no wheel
@@ -43,9 +44,11 @@ scipy>=1.18.1
 
 # binder_review: the sibling package in ./binderscope, imported by review.py.
 # This is a hard dependency, and it cannot be written here as a version pin,
-# because it is not on PyPI. Install it from this repository's own directory:
+# because it is not on PyPI. Install it from this repository's own directory,
+# editable, because a review reads its pages, schemas and validator from beside
+# the source (viewer/, docs/schema/, scripts/), which a plain install leaves out:
 #
-#   <repo>/.venv/bin/pip install ./binderscope
+#   <repo>/.venv/bin/pip install -e ./binderscope
 #
 # Also, the service runs reviews through the console command that package
 # installs, <repo>/.venv/bin/binder-review, so it has to be installed into that

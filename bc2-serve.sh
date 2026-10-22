@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Run the BindCraft2 web service, bound to the loopback interface only.
 #
-# Nothing outside this machine can reach it: people tunnel in over SSH. Give them
-# bc2-connect.command and they double-click it.
+# Nothing outside this machine can reach it: people tunnel in over SSH.
 #
 #   ./bc2-serve.sh install     run it at boot and keep it running (recommended)
 #   ./bc2-serve.sh             start it now
@@ -10,6 +9,7 @@
 #   ./bc2-serve.sh status      is it up?
 #   ./bc2-serve.sh logs        follow the log
 #   ./bc2-serve.sh uninstall   stop starting it at boot
+#   ./bc2-serve.sh init        write bc2serve.env if there is none (./install.sh does this)
 #
 # Settings live in bc2serve.env beside this script: the port, and any GPUs to keep
 # out of the queue. Edit that, then ./bc2-serve.sh restart.
@@ -28,7 +28,11 @@ ENV_FILE="$BINDCRAFT_HOME/bc2serve.env"
 LOG="$BINDCRAFT_HOME/bc2serve.log"
 PIDFILE="$BINDCRAFT_HOME/bc2serve_state/server.pid"
 
-[[ -f $ENV_FILE ]] && source "$ENV_FILE"
+# Exported, not just read: started by hand, the service is this script's child, and
+# a setting the shell merely read never reaches it. Under systemd the unit's
+# EnvironmentFile= does the same job, which is why only the port seemed to work
+# when the service was started by hand.
+if [[ -f $ENV_FILE ]]; then set -a; source "$ENV_FILE"; set +a; fi
 # One instance per person, so two people on this machine must not both land on
 # 8080. The default is derived from the user id: stable for a given account,
 # different between accounts, and needing no coordination.
@@ -54,8 +58,7 @@ write_env_file() {
 # one instance per person, so this is derived from your user id to keep two
 # accounts on this machine off the same port. Change it if you like, but do not
 # change it casually: the review pages store your keep/maybe/reject decisions
-# against this address, and moving the port hides them. Tell people to use the
-# matching line in bc2-connect.command.
+# against this address, and moving the port hides them.
 BC2SERVE_PORT=$PORT
 
 # GPUs the queue must never touch, comma separated, for cards that should always be
@@ -77,8 +80,6 @@ Reserved GPUs: ${BC2SERVE_RESERVED_GPUS:-none}
 From your own machine:
   ssh -N -L $PORT:localhost:$PORT $USER@$(hostname -f)
 then open http://localhost:$PORT
-
-Or hand people bc2-connect.command, which does both.
 REACH
 }
 
@@ -94,6 +95,13 @@ case "${1:-start}" in
     echo "=== starting on 127.0.0.1:$PORT at $(date '+%Y-%m-%d %H:%M:%S') ==="
     exec .venv/bin/python -m uvicorn bc2serve.app:app \
       --host 127.0.0.1 --port "$PORT"
+    ;;
+
+  init)
+    # The installer calls this before adding its own settings, so the defaults in
+    # the file have one author, this script.
+    write_env_file
+    echo "bc2serve: settings in $ENV_FILE"
     ;;
 
   install)
@@ -240,7 +248,7 @@ UNIT
     ;;
 
   *)
-    echo "usage: $0 [install|start|stop|restart|status|logs|uninstall]" >&2
+    echo "usage: $0 [install|start|stop|restart|status|logs|uninstall|init]" >&2
     exit 2
     ;;
 esac

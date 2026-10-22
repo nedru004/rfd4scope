@@ -1184,6 +1184,12 @@ def launch_spec(repo: Path, row) -> tuple[list[str], Path] | None:
     # told to switch its context checks off. Everything that only means something
     # against a reference (its chain, the placement, the accession, the online lookups
     # that need one) is left off with it rather than passed to something that cannot use it.
+    # How many worker processes a build may use. Unset, Binderscope takes every core
+    # but one: right on a workstation of one's own, wrong on a cluster login node
+    # shared with everyone else on it. The cluster install sets it.
+    workers = os.environ.get("BC2SERVE_REVIEW_JOBS", "").strip()
+    if workers.isdigit() and int(workers) > 0:
+        command += ["--jobs", workers]
     wrapped = ["/bin/sh", "-c", '"$@"; code=$?; echo "$code" > "$0"; exit "$code"',
                str(_exit_file(folder))] + command
     _exit_file(folder).unlink(missing_ok=True)

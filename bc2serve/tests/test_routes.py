@@ -761,6 +761,22 @@ class MiscRouteTests(Routes):
             body = self.client.get("/api/cluster").json()
         self.assertEqual((body["backend"], body["queues"], body["gpus"]), ("local", [], []))
 
+    def test_the_cluster_box_follows_the_backend_setting_not_just_qstat(self):
+        with mock.patch.dict(os.environ, {"BC2SERVE_BACKEND": "local"}), \
+             mock.patch.object(app_module.sge, "available", return_value=True):
+            body = self.client.get("/api/cluster?fresh=true").json()
+        self.assertEqual(body["backend"], "local")
+
+    def test_a_cluster_with_no_image_or_parameters_set_says_so_on_the_page(self):
+        snap = {"queues": [], "gpus": [], "read_at": 0}
+        with mock.patch.dict(os.environ, {"BC2SERVE_BACKEND": "sge"}), \
+             mock.patch.object(app_module.sge, "snapshot", return_value=dict(snap)):
+            for key in ("BC2SERVE_SGE_SIF", "BC2SERVE_SGE_PARAMS"):
+                os.environ.pop(key, None)          # restored with the rest when the patch ends
+            body = self.client.get("/api/cluster?fresh=true").json()
+        self.assertEqual(body["backend"], "sge")
+        self.assertIn("BC2SERVE_SGE_SIF and BC2SERVE_SGE_PARAMS", body["note"])
+
     def test_a_new_topic_is_long_and_not_repeated(self):
         first = self.client.get("/api/notify/topic").json()["topic"]
         second = self.client.get("/api/notify/topic").json()["topic"]
@@ -1087,6 +1103,19 @@ class ProjectReviewTests(Routes):
         self.client.delete(f"/api/review/{folder.name}")
 
     # ---------------------------------------------------------------- the command
+
+    def test_a_review_takes_every_core_but_one_unless_told_otherwise(self):
+        answer = self.build()
+        with mock.patch.dict(os.environ, {}):
+            os.environ.pop("BC2SERVE_REVIEW_JOBS", None)
+            command, _ = review_module.launch_spec(REPO, store.get(answer["id"]))
+        self.assertNotIn("--jobs", command)
+        with mock.patch.dict(os.environ, {"BC2SERVE_REVIEW_JOBS": "2"}):
+            command, _ = review_module.launch_spec(REPO, store.get(answer["id"]))
+        self.assertEqual(command[command.index("--jobs") + 1], "2")
+        with mock.patch.dict(os.environ, {"BC2SERVE_REVIEW_JOBS": "lots"}):
+            command, _ = review_module.launch_spec(REPO, store.get(answer["id"]))
+        self.assertNotIn("--jobs", command)
 
     def test_the_command_reads_each_member_as_id_equals_path_and_never_the_notional_folder(self):
         answer = self.build()
@@ -1488,3 +1517,47 @@ class ProjectStorageTests(Routes):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ClusterSettingsTests(unittest.TestCase):
+    """A cluster job runs with two paths only its site knows, so neither has a default."""
+
+    def setUp(self):
+        holder = tempfile.TemporaryDirectory(prefix="bc2serve-sge-")
+        self.addCleanup(holder.cleanup)
+        self.tmp = Path(os.path.realpath(holder.name))
+        patcher = mock.patch.dict(os.environ, {})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for key in ("BC2SERVE_SGE_SIF", "BC2SERVE_SGE_PARAMS"):
+            os.environ.pop(key, None)
+
+    def test_nothing_set_names_both_settings_and_the_installer(self):
+        why = jobs_module.cluster_settings()[2]
+        self.assertIn("BC2SERVE_SGE_SIF and BC2SERVE_SGE_PARAMS", why)
+        self.assertIn("./install.sh --sge", why)
+
+    def test_an_image_that_is_not_there_is_named(self):
+        (self.tmp / "params").mkdir()
+        os.environ.update(BC2SERVE_SGE_SIF=str(self.tmp / "missing.sif"), BC2SERVE_SGE_PARAMS=str(self.tmp / "params"))
+        self.assertIn("no BindCraft 2 image at", jobs_module.cluster_settings()[2])
+
+    def test_a_parameters_folder_that_is_not_there_is_named(self):
+        (self.tmp / "bc2.sif").write_bytes(b"")
+        os.environ.update(BC2SERVE_SGE_SIF=str(self.tmp / "bc2.sif"), BC2SERVE_SGE_PARAMS=str(self.tmp / "nowhere"))
+        self.assertIn("no AlphaFold parameters folder at", jobs_module.cluster_settings()[2])
+
+    def test_both_present_is_fine(self):
+        (self.tmp / "bc2.sif").write_bytes(b"")
+        (self.tmp / "params").mkdir()
+        os.environ.update(BC2SERVE_SGE_SIF=str(self.tmp / "bc2.sif"), BC2SERVE_SGE_PARAMS=str(self.tmp / "params"))
+        self.assertEqual(jobs_module.cluster_settings(), (str(self.tmp / "bc2.sif"), str(self.tmp / "params"), None))
+
+    def test_a_campaign_is_refused_before_anything_reaches_the_scheduler(self):
+        row = {"project_folder": str(self.tmp / "project"), "id": 7, "campaign_path": str(self.tmp / "c.json"),
+               "queue": "", "gpu_type": "", "gpus_wanted": 1}
+        with mock.patch.object(jobs_module.sge, "submit") as submit:
+            job_id, why = store._submit_to_cluster(row)
+        self.assertIsNone(job_id)
+        self.assertIn("BC2SERVE_SGE_SIF", why)
+        submit.assert_not_called()

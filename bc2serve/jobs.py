@@ -749,14 +749,16 @@ class JobStore:
             project.mkdir(parents=True, exist_ok=True)
         except OSError as problem:
             return None, str(problem)
-        home = Path(os.environ.get("HOME", "~")).expanduser()
+        sif, params, why = cluster_settings()
+        if why:
+            return None, why
         script = sge.job_script(
             name=f"bc2_{row['id']}",
             campaign=str(row["campaign_path"]),
             project=str(project),
             log=str(project / "campaign.log"),
-            sif=os.environ.get("BC2SERVE_SGE_SIF", str(home / "containers/bindcraft2-cuda12.sif")),
-            params=os.environ.get("BC2SERVE_SGE_PARAMS", str(home / "bc2-test/af2params")),
+            sif=sif,
+            params=params,
             cache=str(project / "xla_cache"),
             queue=_queue_name(row["queue"]),
             slots=int(os.environ.get("BC2SERVE_SGE_SLOTS", "8")),
@@ -802,6 +804,30 @@ class JobStore:
         except OSError as problem:
             print(f"bc2serve: could not launch job {row['id']}: {problem}", flush=True)
             return None
+
+
+def cluster_settings() -> tuple[str, str, str | None]:
+    """The BindCraft 2 image and AlphaFold parameters a cluster job runs with, and what is wrong with them.
+
+    Neither has a default. Both are paths on one site's shared filesystem, and a
+    guessed one is a job that waits in the queue for minutes and then fails on a
+    compute node where nobody is watching. So a campaign is refused here, at once
+    and with the reason, instead. `./install.sh --sge` asks for both and writes
+    them to bc2serve.env.
+    """
+    sif = os.environ.get("BC2SERVE_SGE_SIF", "").strip()
+    params = os.environ.get("BC2SERVE_SGE_PARAMS", "").strip()
+    missing = [key for key, value in (("BC2SERVE_SGE_SIF", sif), ("BC2SERVE_SGE_PARAMS", params)) if not value]
+    if missing:
+        return sif, params, ("Set " + " and ".join(missing) + " in bc2serve.env: the BindCraft 2 Apptainer image "
+                             "and the AlphaFold parameters folder that cluster jobs run with. "
+                             "./install.sh --sge asks for both.")
+    sif, params = str(Path(sif).expanduser()), str(Path(params).expanduser())
+    if not Path(sif).is_file():
+        return sif, params, f"There is no BindCraft 2 image at {sif} (BC2SERVE_SGE_SIF in bc2serve.env)."
+    if not Path(params).is_dir():
+        return sif, params, f"There is no AlphaFold parameters folder at {params} (BC2SERVE_SGE_PARAMS in bc2serve.env)."
+    return sif, params, None
 
 
 def cluster_mode() -> bool:

@@ -753,6 +753,7 @@ class JobStore:
         if why:
             return None, why
         script = sge.job_script(
+            binds=_campaign_folders(row),
             name=f"bc2_{row['id']}",
             campaign=str(row["campaign_path"]),
             project=str(project),
@@ -804,6 +805,24 @@ class JobStore:
         except OSError as problem:
             print(f"bc2serve: could not launch job {row['id']}: {problem}", flush=True)
             return None
+
+
+def _campaign_folders(row) -> tuple[str, ...]:
+    """The host folders a cluster campaign touches: its project folder and the folders of its targets.
+
+    Each is bound into the container at its own path (sge.job_script says why). The
+    targets are read from the campaign file the job will run, so the list is exactly
+    what BindCraft will open there.
+    """
+    folders = [str(row["project_folder"])]
+    try:
+        campaign = json.loads(Path(row["campaign_path"]).read_text(encoding="utf-8"))
+        for target in campaign.get("targets") or []:
+            if target.get("target_path"):
+                folders.append(str(Path(target["target_path"]).parent))
+    except (OSError, ValueError, AttributeError):
+        pass                    # the job then fails on its own, with BindCraft's message
+    return tuple(dict.fromkeys(folders))
 
 
 def cluster_settings() -> tuple[str, str, str | None]:

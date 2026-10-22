@@ -358,7 +358,7 @@ echo "host $(hostname)  CUDA_VISIBLE_DEVICES=${{CUDA_VISIBLE_DEVICES:-unset}}  $
 nvidia-smi --query-gpu=name,driver_version,compute_cap --format=csv,noheader 2>/dev/null | head -2
 
 apptainer exec -e \\
-  --bind {params}:/af2params --bind {cache}:/xla_cache --pwd {project} \\
+  --bind {params}:/af2params --bind {cache}:/xla_cache{binds} --pwd {project} \\
   "$SIF" bindcraft design {campaign}
 status=$?
 echo "== exit $status at $(date)"
@@ -368,7 +368,7 @@ exit $status
 
 def job_script(name: str, campaign: str, project: str, log: str, *, sif: str,
                params: str, cache: str, slots: int, queue: str = "",
-               gpu_flag: str | None, gpus: int = 1) -> str:
+               gpu_flag: str | None, gpus: int = 1, binds: tuple[str, ...] = ()) -> str:
     """The batch script for one campaign.
 
     Slots buy memory on clusters set up this way, not just cores: each is one core plus the node's
@@ -395,9 +395,16 @@ def job_script(name: str, campaign: str, project: str, log: str, *, sif: str,
     quoted = {key: shlex.quote(str(value)) for key, value in
               (("campaign", campaign), ("project", project),
                ("sif", sif), ("params", params), ("cache", cache))}
+    # Every host folder the campaign reads or writes is bound at its own path. The
+    # container sees only what is bound, and a home reached through a symlink (as on
+    # clusters that moved their home directories) is bound by its real path, so a
+    # project folder spelled the way the user's home is spelled does not exist in
+    # there: Apptainer could not even enter it to start. Binding each one under its
+    # own spelling is what the hand-written batch jobs on such a cluster did.
+    extra = "".join(f" --bind {shlex.quote(f'{b}:{b}')}" for b in dict.fromkeys(binds))
     # `log` is deliberately NOT quoted: it fills `#$ -o`, which qsub reads
     # itself. Quotes there become part of the path rather than disappearing.
-    return JOB_TEMPLATE.format(name=name, log=log, resources="\n".join(lines), **quoted)
+    return JOB_TEMPLATE.format(name=name, log=log, resources="\n".join(lines), binds=extra, **quoted)
 
 
 def submit(script_path: str) -> tuple[str | None, str]:

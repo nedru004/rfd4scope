@@ -183,7 +183,7 @@ The port is derived from your user id, and it **must stay stable for an account.
 |---|---|---|
 | The service and its pages | The submit host, usually a login node | The checkout's `.venv` |
 | Each campaign | A compute node, as one SGE job | BindCraft 2 inside your Apptainer image |
-| Each review | The submit host | The checkout's `.venv`, capped at `BC2SERVE_REVIEW_JOBS` worker processes |
+| Each review | The submit host, or on a host older than glibc 2.28 a compute node | The checkout's `.venv` capped at `BC2SERVE_REVIEW_JOBS` workers, or a Python container (see below) |
 
 The submit host needs the BindCraft 2 checkout for its files (the target presets in `settings/target/`), not for its GPU environment: BindCraft itself runs inside the image. Nothing on the submit host uses a GPU.
 
@@ -192,7 +192,7 @@ The submit host needs the BindCraft 2 checkout for its files (the target presets
 - **SGE's client commands** (`qsub`, `qstat`, `qdel`) on the submit host, and **Apptainer** on the compute nodes.
 - **A BindCraft 2 Apptainer image** (`.sif`). Many clusters run GPU drivers too old for CUDA 13, so build or pull one made for CUDA 12. Binderscope does not build it.
 - **The AlphaFold 2 parameters**, the folder holding `params_model_*.npz`. Each job binds it into the image.
-- **glibc 2.28 or later on the submit host.** The service needs numpy 2.5 and scipy 1.18, whose prebuilt packages require it. On an older system (glibc 2.17 on CentOS 7, for example) they cannot be installed at all, and the installer stops and says so. The review on its own, on your own computer, still works in that case.
+- **For everything in one environment, glibc 2.28 or later on the submit host.** The review package needs numpy 2.5 and scipy 1.18, whose prebuilt packages require it. On an older host the installer switches to launcher-only mode instead: see [On a host older than glibc 2.28](#on-a-host-older-than-glibc-228).
 - **Python 3.12 or later** on the submit host. Without root: `pip install --user uv && uv python install 3.12`, then pass `--python "$(uv python find 3.12)"`.
 
 ### Install
@@ -210,11 +210,31 @@ Anything you leave out, it asks for. It creates the checkout's `.venv` when ther
 | `BC2SERVE_SGE_PARAMS` | The AlphaFold 2 parameters folder. No default either. |
 | `BC2SERVE_SGE_QUEUE` | The queue to submit to (`--queue`). Empty means your site's default queue. |
 | `BC2SERVE_SGE_SLOTS` | Slots per campaign, 8 unless set. On clusters where a slot buys a share of a node's memory, single-worker campaigns were measured at 16 to 33 GB. |
-| `BC2SERVE_REVIEW_JOBS` | Worker processes per review, 2 here. Unset, a review takes every core but one, which suits a machine of your own and not a shared login node. |
+| `BC2SERVE_REVIEW_JOBS` | Worker processes per review: 2 when reviews run on the login node, 4 when they go to a compute node. Unset, a review takes every core but one, which suits a machine of your own and not a shared login node. |
+
+### On a host older than glibc 2.28
+
+On glibc 2.17 (CentOS 7, for example) the review package's numpy 2.5 and scipy 1.18 cannot be installed at all: they have no prebuilt packages for it, and pip can only try to compile them. The launcher is less demanding. So `./install.sh --sge` installs the launcher on its own, from `bc2serve/requirements-launcher.txt` (floors that resolved and ran on a glibc 2.17 login node), and puts the review package in a virtualenv inside a Python 3.12 container, which brings its own glibc. Reviews then run on a compute node:
+
+```bash
+./install.sh --sge --sif /path/to/bindcraft2-cuda12.sif --params /path/to/af2params \
+  --python /path/to/python3.12 --review-queue CPU_QUEUE
+```
+
+It needs `qrsh` and `apptainer` on the submit host as well. It pulls `python:3.12-slim` into `.binderscope/python312.sif` in the checkout unless you give an image with `--review-sif`, and writes two more settings:
+
+| Setting | What it is |
+|---|---|
+| `BC2SERVE_REVIEW_RUNTIME` | How to run the review package: `apptainer exec -e --bind <checkout> <image> <venv>/bin/python -m binder_review`. The chain table shown before a build comes from here, through `binder-review chains --json`, so the launcher never imports the package itself. |
+| `BC2SERVE_REVIEW_SUBMIT` | What goes in front of a build: `qrsh -noshell -now no -q <queue> -pe smp 4`. `qrsh` because the build's output must stream back to drive the progress stages, `-noshell` so a login shell such as tcsh does not re-read the arguments, `-now no` so it waits for a slot. If your site needs more than a queue, give the whole command with `--review-submit`, for example one that adds a "no GPU" resource. |
+
+**Expect the first install to take most of an hour on a home directory that is a network filesystem.** The two environments are some 20,000 small files (about 650 MB), and writing them is nearly all of the time. It is a one-time cost; updates are a copy of the source.
 
 ### What a job asks for
 
 Each campaign is one job: `-pe smp <slots>`, then `-l ngpus=<n>` for any card, or `-l gpu_<model>=true` for a card type chosen on the Design page. Those resource names are the ones the cluster this was written on defines. If yours names GPUs differently, `job_script` in `bc2serve/sge.py` is the one place that builds the request.
+
+The job binds the campaign's project folder and the folders of its targets into the image, each at its own path. Without that, on a cluster whose home directories are reached through a symlink, the container sees home only by its real path, and Apptainer cannot even enter the project folder to start.
 
 The **Cluster** box on the Design page reads queue and card state from `qstat`, including per-card values (`gpu.cuda.<n>.mem_free`) that only some sites publish, and marks the queues that are yours from `whichq`, a command your site may not have. Where they are missing, the box shows less. Submitting does not depend on it.
 
@@ -224,7 +244,9 @@ A login node usually has no systemd user session, so the installer starts the se
 
 ### Status
 
-The cluster backend is covered by tests against recorded scheduler output, and its job script follows a recipe that has run BindCraft 2 on a production SGE cluster. This repository's service has **not yet been run end to end on a cluster**, so treat your first campaign there as a test, and read its `campaign.log`.
+**Run end to end on one production SGE cluster** (glibc 2.17, Apptainer, home on a network filesystem behind a symlink), in launcher-only mode: installed from a clean clone; the service started by hand on a login node; a campaign submitted from the API ran as an SGE job on a GPU node (28 minutes on an A10, 22 GB at peak, one accepted design); its review ran through `qrsh` in the container on a CPU node (40 seconds, 600 MB) with a full-length reference; and the bundle's six pages loaded with no errors. That run also found the bind problem described above, now fixed.
+
+Not yet run: the everything-in-one-environment mode on a cluster with glibc 2.28 or later, and any SGE site other than that one, whose resource names (`ngpus`, `gpu_<model>`, the `smp` parallel environment) may differ from yours. Treat your first campaign as a test, and read its `campaign.log`.
 
 ---
 
@@ -252,4 +274,4 @@ The project's other working notes (the architecture notes, the build plan and th
 
 ## About this document
 
-`./install.sh --local` has been run from scratch on a GPU workstation: a fresh BindCraft 2 v1.0.3 checkout, then the installer from a clean clone, then a campaign submitted through the service, which ran and was reviewed. `--sge` has been run on Rocky Linux 9 against stand-in SGE commands, not yet on a real cluster (see [On an SGE cluster](#on-an-sge-cluster)). The review-only install has been run on Rocky Linux 9 with no root, and not yet on a clean Mac. If a step does not work as written, the step is wrong, not you.
+`./install.sh --local` has been run from scratch on a GPU workstation: a fresh BindCraft 2 v1.0.3 checkout, then the installer from a clean clone, then a campaign submitted through the service, which ran and was reviewed. `--sge` has been run end to end on a production SGE cluster in launcher-only mode (see [Status](#status)). The review-only install has been run on Rocky Linux 9 with no root, and not yet on a clean Mac. If a step does not work as written, the step is wrong, not you.

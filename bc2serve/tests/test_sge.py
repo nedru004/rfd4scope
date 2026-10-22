@@ -939,6 +939,20 @@ class JobScriptExecutionTests(unittest.TestCase):
                                 str(sif), "bindcraft", "design", str(campaign)])
         self.assertTrue(cache.is_dir())          # the XLA cache is made before the run
 
+    def test_each_folder_the_campaign_touches_is_bound_at_its_own_path(self):
+        # A home reached through a symlink is mounted by its real path, so the
+        # spelling the project folder was given by does not exist in the container
+        # unless it is bound under that spelling.
+        script = make_script(binds=("/Users/u/r/c 1", "/Users/u/BC/settings/target/structures", "/Users/u/r/c 1"))
+        line = next(l for l in script.splitlines() if "--pwd" in l)
+        self.assertIn("--bind '/Users/u/r/c 1:/Users/u/r/c 1'", line)
+        self.assertIn("--bind /Users/u/BC/settings/target/structures:/Users/u/BC/settings/target/structures", line)
+        self.assertEqual(line.count("/Users/u/r/c 1:"), 1)          # once each
+
+    def test_no_binds_leaves_the_line_as_it_was(self):
+        line = next(l for l in make_script().splitlines() if "--pwd" in l)
+        self.assertEqual(line.count("--bind"), 2)                    # the parameters and the cache
+
     def test_paths_with_spaces_are_quoted(self):
         base = self.tmp / "my projects"
         params, cache = base / "af2 params", base / "xla cache"

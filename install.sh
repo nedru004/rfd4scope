@@ -269,7 +269,11 @@ fi
 
 # ---- 4. start it
 if (( NOSERVICE )); then
-  step "Done. Start it with: $BC/bc2-serve.sh install   (or $BC/bc2-serve.sh to start it by hand)"
+  if systemctl --user show-environment >/dev/null 2>&1; then
+    step "Done. Start it with: $BC/bc2-serve.sh install   (or $BC/bc2-serve.sh to start it by hand)"
+  else
+    step "Done. Start it by hand with: $BC/bc2-serve.sh   (this machine has no systemd user session)"
+  fi
   exit 0
 fi
 UNIT="$HOME/.config/systemd/user/bindcraft-web.service"

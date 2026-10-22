@@ -1553,6 +1553,15 @@ class ClusterSettingsTests(unittest.TestCase):
         os.environ.update(BC2SERVE_SGE_SIF=str(self.tmp / "bc2.sif"), BC2SERVE_SGE_PARAMS=str(self.tmp / "params"))
         self.assertEqual(jobs_module.cluster_settings(), (str(self.tmp / "bc2.sif"), str(self.tmp / "params"), None))
 
+    def test_a_cluster_job_binds_its_project_and_the_folders_of_its_targets(self):
+        project = self.tmp / "project"; project.mkdir()
+        (project / "campaign.json").write_text(json.dumps({"targets": [
+            {"target_path": str(self.tmp / "structures" / "t.pdb")}, {"target_path": str(self.tmp / "uploads" / "u.pdb")},
+            {"target_path": str(self.tmp / "structures" / "t2.pdb")}]}))
+        row = {"project_folder": str(project), "campaign_path": str(project / "campaign.json")}
+        self.assertEqual(jobs_module._campaign_folders(row),
+                         (str(project), str(self.tmp / "structures"), str(self.tmp / "uploads")))
+
     def test_a_campaign_is_refused_before_anything_reaches_the_scheduler(self):
         row = {"project_folder": str(self.tmp / "project"), "id": 7, "campaign_path": str(self.tmp / "c.json"),
                "queue": "", "gpu_type": "", "gpus_wanted": 1}

@@ -1,0 +1,61 @@
+# Dependencies of bc2serve, the Binderscope web service.
+#
+# These are floors, not exact pins, and they were taken from a working install
+# (Python 3.12.15) rather than resolved from scratch. They say "this combination
+# is known to run"; they do not say that nothing older would. If you resolve to
+# something newer and it breaks, the floors below are the first thing to try.
+#
+# Install into the BindCraft 2 virtual environment, because that is the Python
+# the service runs under (see "Layout" in the README):
+#
+#   <repo>/.venv/bin/pip install -r bc2serve/requirements.txt
+#   <repo>/.venv/bin/pip install ./binderscope
+#
+# The second line is REQUIRED. See binder_review below.
+#
+# On an older system, add --only-binary=:all: to both commands. Without it, pip
+# falls back to building numpy, scipy or biotite from source when no wheel
+# matches, and the source build fails on older toolchains. With it, pip refuses
+# instead, which is a clearer failure than a compiler error.
+
+# The web framework. Brings starlette and pydantic with it (starlette 1.8.0 and
+# pydantic 2.14.1 in the working install); do not list them separately.
+fastapi>=0.143.2
+
+# Never imported. It is how bc2-serve.sh launches the app:
+#   python -m uvicorn bc2serve.app:app --host 127.0.0.1 --port ...
+# Remove it and the import checks all pass, then the service will not start.
+uvicorn>=0.54.0
+
+# Never imported either. FastAPI needs it at startup to accept the routes that
+# take a File or Form upload, and refuses to build those routes without it.
+python-multipart>=0.0.32
+
+# Imported directly (structure.py and review.py).
+numpy>=2.5.4
+biotite>=1.7.1
+
+# A direct import, not something that arrives transitively. review.py uses
+# scipy.cluster.hierarchy and scipy.spatial.distance, lazily inside a function,
+# so a missing scipy does not fail at import time: it fails the first time a
+# review reaches that code. It is listed here so that it is installed before then.
+scipy>=1.18.1
+
+# binder_review: the sibling package in ./binderscope, imported by review.py.
+# This is a hard dependency, and it cannot be written here as a version pin,
+# because it is not on PyPI. Install it from this repository's own directory:
+#
+#   <repo>/.venv/bin/pip install ./binderscope
+#
+# Also, the service runs reviews through the console command that package
+# installs, <repo>/.venv/bin/binder-review, so it has to be installed into that
+# same environment and not into some other one.
+
+# ------------------------------------------------------------------ test extras
+# Not needed to run the service. To run the tests in bc2serve/tests, install
+# these as well. TestClient needs httpx.
+#
+#   <repo>/.venv/bin/pip install 'pytest>=9.1.1' 'httpx>=0.28.1'
+#
+# pytest>=9.1.1
+# httpx>=0.28.1

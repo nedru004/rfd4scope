@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>New project · Binderscope</title>
+<link rel="icon" href="/_app/binderscope-mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/_app/shared.css">
+<link rel="stylesheet" href="/_app/app.css">
+</head>
+<body>
+<header class="ahdr">
+  <a class="brand" href="/"><img class="mark" src="/_app/binderscope-mark.svg" alt=""><span>Binderscope</span></a>
+  <span class="grow"></span>
+  <a class="btn ghost sm" href="/">All projects</a>
+  <button class="btn ghost sm" id="quit" type="button" title="Stop the Binderscope app (your projects stay where they are)">Quit</button>
+</header>
+<main class="wrap">
+  <div id="form">
+    <h1>New project</h1>
+    <p class="lead">Choose your BindCraft runs and the target. Binderscope reads them where they are and never changes them.</p>
+    <div class="stack">
+      <section class="card" aria-labelledby="h-runs">
+        <div class="row sp"><h3 id="h-runs"><span class="n">1</span>BindCraft runs</h3><button class="btn" id="addruns" type="button">Add run folders…</button></div>
+        <p class="why">The folder of each run: from BindCraft 1, the one holding the stats CSVs, the Accepted folder and the settings file; from BindCraft 2, the one holding 1_Trajectories, 2_Refolded, 3_Ranked and campaign_metadata.json. Add as many runs of the same target as you like.</p>
+        <div id="runs"></div>
+        <div class="row" style="margin-top:10px"><input type="text" id="runpath" placeholder="or paste a folder path" aria-label="Paste a run folder path" style="flex:1;min-width:200px"><button class="btn" id="runadd" type="button">Add</button></div>
+      </section>
+
+      <section class="card" aria-labelledby="h-target">
+        <h3 id="h-target"><span class="n">2</span>The target</h3>
+        <p class="why">Two structure files: what you gave BindCraft, and the whole protein it belongs to. Binderscope uses the second to check each design against the part of the target BindCraft never saw.</p>
+        <div class="field">
+          <span class="lbl">Structure you gave BindCraft</span>
+          <div class="pick"><button class="btn" id="pickt" type="button">Choose file…</button><span id="tinfo"></span></div>
+          <div class="sugg" id="tsugg" hidden></div>
+          <div class="drop" id="tdrop">or drop the file here</div>
+        </div>
+        <div class="field" style="margin-bottom:0">
+          <span class="lbl">Full-length reference structure</span>
+          <div class="pick"><button class="btn" id="pickr" type="button">Choose file…</button>
+            <span class="hint">or a PDB entry:</span><input type="text" id="pdbid" placeholder="1abc" maxlength="4" aria-label="PDB id" style="width:86px"><button class="btn" id="fetch" type="button" title="Downloads the entry from the RCSB Protein Data Bank">Download</button></div>
+          <div id="rinfo"></div>
+          <div class="drop" id="rdrop">or drop the file here (mmCIF or PDB)</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <details class="opt" id="opt">
+          <summary>Options</summary>
+          <div class="body">
+            <div class="field"><label for="name">Project name</label><input type="text" id="name" placeholder="Taken from your run folders"></div>
+            <div class="field"><label for="uniprot">UniProt accession of the target</label><input type="text" id="uniprot" placeholder="optional">
+              <span class="hint">Adds the domain strip, topology and the specificity panel. Binderscope looks the accession up online once and keeps a copy.</span>
+              <label class="chk"><input type="checkbox" id="online"> Allow the online lookup</label></div>
+            <div class="field"><label for="rchain">Chain of the target in the reference</label><select id="rchain"><option value="A">A</option></select></div>
+            <div class="field"><label for="partners">Other subunits of the target in the reference</label>
+              <select id="partners"><option value="auto">Detect them (chains with the same sequence)</option><option value="none">None</option><option value="custom">Choose chains…</option></select>
+              <input type="text" id="pcustom" placeholder="chain ids, for example B,C" hidden></div>
+            <div class="field"><label for="placement">How designs are placed on the full-length protein</label>
+              <select id="placement"><option value="interface">Fit around each design's interface (recommended)</option><option value="whole">Fit the whole target</option><option value="core">Fit the rigid core of the target</option></select>
+              <span class="hint">BindCraft predicts its own copy of the target, which differs a little from the reference. Fitting around the interface keeps the binder on the epitope; the whole-target fit can leave it 1 to 3 Å off where the model differs.</span></div>
+            <div class="field" style="margin-bottom:0"><span class="lbl">Profile file</span><div class="pick"><button class="btn" id="pickp" type="button">Choose file…</button><span id="pinfo" class="hint">none (the neutral default)</span></div></div>
+          </div>
+        </details>
+      </section>
+    </div>
+  </div>
+
+  <section class="card" id="progress" hidden aria-live="polite">
+    <div class="row sp"><h3 id="ptitle">Building…</h3><span class="hint" id="pelapsed"></span></div>
+    <div class="meter"><i id="pmeter"></i></div>
+    <ul class="stages" id="pstages"></ul>
+    <div id="pnote" class="hint" style="margin-top:8px"></div>
+    <div id="pout"></div>
+    <div class="row" style="margin-top:16px" id="pacts"><button class="btn" id="pcancel" type="button">Cancel build</button></div>
+    <details style="margin-top:14px"><summary class="hint" style="cursor:pointer">Show details</summary><div class="log" id="plog"></div></details>
+  </section>
+</main>
+<div class="bar" id="bar"><div class="in"><span class="need" id="need"></span><a class="btn" href="/">Cancel</a><button class="btn primary big" id="build" type="button" disabled>Build project</button></div></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="/_app/app.js"></script>
+<script src="/_app/new.js"></script>
+</body>
+</html>

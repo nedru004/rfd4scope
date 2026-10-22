@@ -1,0 +1,85 @@
+# Written 2026-10-18, before `git init`, so that whenever this does become a
+# repository the private material is already excluded rather than excluded
+# after the fact. Git history is effectively permanent: a file removed in a
+# later commit stays readable at its old commit URL, in every clone and in
+# every fork. The only reliable fix is to never commit it.
+#
+# The posture here is default-deny. Everything that has not been read and
+# cleared for publication is ignored; un-ignoring is a decision, dropping
+# something quietly is not.
+
+# ---------------------------------------------------------------- runtime state
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+bc2serve_state/
+results/
+bc2serve.env
+*.log
+*.pid
+*.sif
+.DS_Store
+
+# ------------------------------------------------------- internal notes, private
+# Decided by the user on 2026-10-18: the context files stay private. Extended to
+# every top-level document, because all but two name the lab's machines,
+# accounts, filesystem paths or queues, and one holds unpublished results.
+# A README written for release is the exception and is un-ignored below.
+/*.md
+!/README.md
+
+# ----------------------------------------------- not yet cleared for publication
+# (Patterns that would themselves name the site live in .git/info/exclude.)
+# Default-deny, not a decision. Each of these names one site's hosts, queue names or
+# home paths. Review them one by one at release time and un-ignore what should
+# ship.
+/batch/
+/bindcraft2-image/
+/deploy/
+/docs-tutorial/
+*.command
+# The installer the binderscope README tells Mac users to double-click; scanned, clean.
+!/binderscope/Install Binderscope.command
+
+# Files that carry a hostname or a home path. Ignored rather than scrubbed,
+# because neither is needed to run or understand the program.
+#
+# (A trailing comment on a pattern line is part of the pattern, so these stand
+#  alone. The first version of this block had them inline and so ignored
+#  nothing at all — caught only by running `git add` and scanning what staged.
+#  Scan what stages, not what you meant to ignore.)
+#
+# start-jupyter.sh: a fully qualified host name and an account.
+start-jupyter.sh
+# binderscope/scripts/: one-off analysis scripts with absolute result paths stay
+# out. The four that the package and its tests need are named and ship: without
+# validate_schema.py a strict build refuses to run, and the code and docs send
+# people to fetch_reference.py and the two guide builders. Each was scanned for
+# hosts, paths, accounts and sequences before it was un-ignored.
+/binderscope/scripts/*
+!/binderscope/scripts/validate_schema.py
+!/binderscope/scripts/fetch_reference.py
+!/binderscope/scripts/build_guide.py
+!/binderscope/scripts/guide_to_md.py
+# make_demo.py turns a bundle into the public demo; it holds no data of its own.
+!/binderscope/scripts/make_demo.py
+
+# A note on the files that are NOT ignored here, because they must ship.
+#
+# An earlier version of this file declared the package documentation clean. It
+# was not. The check had looked for host names and paths and found none, while
+# several documents, a few source comments and two tests reported measurements
+# from unpublished campaigns. Clean of machine identifiers is not the same as
+# clean of private data, and the second kind does not announce itself: most of
+# those passages never named a campaign, they said "on the real campaign" and
+# then gave the number.
+#
+# Those passages were rewritten on 2026-10-18 to keep the reasoning and drop
+# the measurement, and the tests that embedded real values now use synthetic
+# ones. If you add a document, a docstring or a fixture, the standing rule is
+# that a number may ship only if it came from a toy fixture, a published
+# source, or the code itself.
+
+# The public demo is a build of make_demo.py; it lives on the gh-pages branch, not here.
+/demo/

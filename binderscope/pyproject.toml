@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "binder-review"
+version = "0.1.0"
+description = "Binderscope: triage BindCraft binder designs from run folders into a static, offline review bundle."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "numpy>=2.5.3",
+    "scipy>=1.18.1",
+    "pandas>=3.0.6",
+    "scikit-learn>=1.9.1",
+    "biopython>=1.88",
+    "gemmi>=0.7.5",
+    "tmtools>=0.3.0",
+    "Jinja2>=3.1.6",
+    "openpyxl>=3.1.5",
+    "jsonschema>=4.26",     # the exporter validates every blob against docs/schema (scripts/validate_schema.py)
+]
+
+[project.optional-dependencies]
+antibody = ["abnumber>=0.4.4"]
+dev = ["pytest>=9.1"]
+
+[project.scripts]
+binder-review = "binder_review.cli:main"
+binderscope = "binder_review.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+binder_review = ["profiles/*.json", "app/static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "realdata: needs real BindCraft run folders (private tests only)",
+]

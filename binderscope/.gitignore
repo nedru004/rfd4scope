@@ -1,0 +1,36 @@
+# virtual environments
+.venv/
+venv/
+env/
+
+# build output and working folders (projects written by `binder-review import`, bundles, scratch)
+work/
+bundles/
+
+# public reference records fetched by `import --online` (a cache, safe to delete)
+data/reference/
+
+# Python caches and packaging output
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node (only used by optional browser tooling)
+node_modules/
+
+# editor and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# marker written by the export script
+.public_export

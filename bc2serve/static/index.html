@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Binderscope</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="style.css">
+<script src="3Dmol-min.js"></script>
+</head>
+<body>
+
+<header class="bar">
+  <!-- Binderscope is the program; BindCraft is the engine it drives, and is named
+       in the places where it actually acts rather than in the brand. -->
+  <div class="brand">
+    <!-- The mark is a b: a helix stem, and a bowl holding the hotspot. The stripes
+         are cut with a mask rather than painted, so they show whatever is behind;
+         favicon.svg is the same drawing. -->
+    <svg class="mark" viewBox="0 0 64 64" aria-hidden="true">
+      <defs>
+        <mask id="mark-stem">
+          <rect width="64" height="64" fill="#fff"/>
+          <path d="M9 57C12.5 57 16.5 50 20 50M9 46C12.5 46 16.5 39 20 39M9 35C12.5 35 16.5 28 20 28M9 24C12.5 24 16.5 17 20 17M9 13C12.5 13 16.5 6 20 6" fill="none" stroke="#000" stroke-width="2.6"/>
+        </mask>
+      </defs>
+      <g transform="translate(1.5 0)">
+        <rect class="mark-stem" x="9" y="3" width="11" height="57" rx="5.5" mask="url(#mark-stem)"/>
+        <circle class="mark-bowl" cx="36" cy="40" r="15" stroke-width="10"/>
+        <circle class="mark-hot" cx="36" cy="40" r="5.5"/>
+      </g>
+    </svg>
+    <span class="brand-name">Binderscope</span>
+    <span class="brand-engine" title="Binderscope runs your campaigns on BindCraft 2">BindCraft&nbsp;2</span>
+  </div>
+  <nav class="tabs" role="tablist">
+    <button class="tab is-on" data-view="design" role="tab">Design</button>
+    <button class="tab" data-view="jobs" role="tab">Jobs <span id="job-count" class="pill"></span></button>
+    <button class="tab" data-view="results" role="tab">Results</button>
+    <button class="tab" data-view="review" role="tab">Review</button>
+    <button class="tab" data-view="storage" role="tab">Storage</button>
+  </nav>
+  <!-- One instance per person, so a name on a row says nothing: everything here
+       is already yours. The label names the work instead. -->
+  <label class="who" title="A name for the work, not for you — every campaign here is yours already. Put related runs under one project and the Jobs list can show them on their own.">
+    <span>Project</span>
+    <input id="project" placeholder="spike nanobodies" maxlength="64" autocomplete="off">
+  </label>
+</header>
+
+<!-- ───────────────────────────────── Design ───────────────────────────────── -->
+<main id="view-design" class="view">
+
+<section class="step">
+  <h2><span class="num">1</span> Load a target</h2>
+  <p class="help">The protein you want the binder to stick to.</p>
+
+  <div class="source-pick">
+    <button class="src is-on" data-src="shipped">Built-in target</button>
+    <button class="src" data-src="pdb">PDB entry</button>
+    <button class="src" data-src="upload">My own file</button>
+  </div>
+
+  <div id="src-shipped" class="src-panel">
+    <select id="shipped-target"></select>
+    <p id="shipped-blurb" class="help"></p>
+    <button id="add-shipped" class="go">Use this target</button>
+  </div>
+
+  <div id="src-pdb" class="src-panel hidden">
+    <div class="row">
+      <input id="pdb-id" placeholder="e.g. 4z18" maxlength="4" spellcheck="false">
+      <button id="add-pdb" class="go">Fetch from PDB</button>
+    </div>
+    <p class="help">Four-character PDB entry code. Fetched straight from RCSB.</p>
+  </div>
+
+  <div id="src-upload" class="src-panel hidden">
+    <label class="drop" id="drop">
+      <input type="file" id="file" accept=".pdb,.ent,.cif,.mmcif,.fasta,.fa,.faa" hidden>
+      <strong>Choose a file</strong>
+      <span class="help">or drag it here — PDB, mmCIF or FASTA</span>
+    </label>
+  </div>
+
+  <div id="target-list" class="targets"></div>
+  <p id="target-note" class="note hidden"></p>
+</section>
+
+<section class="step is-waiting" id="step-site">
+  <h2><span class="num">2</span> Choose the binding site</h2>
+  <p class="help">
+    Click residues on the structure to mark where the binder should bind.
+    Leave it empty and BindCraft chooses for you.
+  </p>
+  <p class="waiting-note">Choose a target above and its structure opens here.</p>
+
+  <div class="viewer-wrap">
+    <div id="viewer"></div>
+
+    <div class="viewer-tools">
+      <div class="seg">
+        <button class="mode is-on" data-mode="hotspots">Bind here</button>
+        <button class="mode" data-mode="coldspots">Keep clear</button>
+      </div>
+      <select id="chain-pick" title="Chain to design against"></select>
+      <div class="seg">
+        <button class="look" data-look="sidechains" title="Show side chains of marked residues">Side chains</button>
+        <button class="look" data-look="surface" title="Show the molecular surface">Surface</button>
+        <button class="look" data-look="exposure" title="Colour by how exposed each residue is">Exposure</button>
+      </div>
+      <button id="suggest" class="ghost" title="Mark exposed aromatic and charged residues, which dominate interface energetics">Suggest</button>
+      <button id="clear-spots" class="ghost">Clear</button>
+      <span id="pick-status" class="pick-status"></span>
+    </div>
+
+    <div class="seq-wrap">
+      <div class="seq-head">
+        <span class="seq-title">Sequence</span>
+        <span class="seq-legend">
+          <i class="sw hot"></i>bind <i class="sw cold"></i>clear
+          <i class="sw sug"></i>suggested <i class="sw bur"></i>buried
+        </span>
+        <span class="seq-hint">click a residue, or drag across several</span>
+      </div>
+      <div id="sequence" class="seq"></div>
+    </div>
+  </div>
+
+  <div class="spot-readout">
+    <label>
+      <span class="tag hot">Bind here</span>
+      <input id="hotspots" placeholder="none — BindCraft will choose" spellcheck="false">
+    </label>
+    <label>
+      <span class="tag cold">Keep clear</span>
+      <input id="coldspots" placeholder="none" spellcheck="false">
+    </label>
+  </div>
+
+  <div id="epitope-notes" class="notes-list"></div>
+
+  <details class="more" id="trim-box">
+    <summary>Trim the target <span id="trim-state" class="dim"></span></summary>
+    <div class="sub">
+      <p class="help">
+        GPU cost grows with the <b>square</b> of the complex, so cutting a target to the
+        domain you care about is the cheapest speed-up there is. Residue numbering is kept,
+        so your hotspots stay valid.
+      </p>
+      <div class="row">
+        <label class="grow">
+          <span>Keep these residues</span>
+          <input id="trim-keep" placeholder="e.g. 27-179" spellcheck="false">
+          <span class="help">Blank keeps everything in the chain you selected.</span>
+        </label>
+        <button id="trim-selected" class="ghost" type="button" title="Fill from what you have marked, plus 12 A around it">From my hotspots</button>
+        <button id="trim-go" class="go" type="button">Trim</button>
+      </div>
+      <p class="note" id="trim-warn">
+        A binder designed against a trimmed target has never seen the rest of the protein.
+        Check the designs that passed against the full structure for clashes, glycans and
+        membrane orientation before ordering anything.
+      </p>
+    </div>
+  </details>
+</section>
+
+<section class="step">
+  <h2><span class="num">3</span> Pick a modality</h2>
+  <p class="help">What kind of molecule you want to design.</p>
+  <div id="formats" class="cards"></div>
+
+  <div id="length-box" class="sub">
+    <label class="inline">
+      <span>Length</span>
+      <input type="number" id="len-min" min="4" max="900"> to
+      <input type="number" id="len-max" min="4" max="900">
+      <span class="help">residues</span>
+    </label>
+    <label class="inline hidden" id="copies-box">
+      <span>Copies</span><input type="number" id="copies" min="2" max="12" value="2">
+    </label>
+    <label class="inline hidden" id="domains-box">
+      <span>Domains</span><input type="number" id="domains" min="2" max="6" value="2">
+    </label>
+  </div>
+  <p id="scaffold-note" class="note hidden">
+    This format is built on a scaffold, which sets the length.
+  </p>
+</section>
+
+<section class="step">
+  <h2><span class="num">4</span> Run it</h2>
+
+  <div class="grid">
+    <label>
+      <span>Campaign name</span>
+      <input id="name" placeholder="e.g. pdl1_nanobody" spellcheck="false">
+      <span class="help">Names the results folder.</span>
+    </label>
+    <label>
+      <span>Save results in</span>
+      <input id="results-root" list="root-choices" spellcheck="false"
+             placeholder="/data/yourname/project">
+      <datalist id="root-choices"></datalist>
+      <span class="help" id="root-note">Results grow to many GB.</span>
+    </label>
+    <label>
+      <span>Designs wanted</span>
+      <input type="number" id="wanted" value="10" min="1" max="1000">
+      <span class="help">Stops once this many pass.</span>
+    </label>
+    <label>
+      <span>Attempt budget</span>
+      <input type="number" id="attempts" value="200" min="1" max="100000">
+      <span class="help">Gives up after this many tries.</span>
+    </label>
+    <label>
+      <span>GPUs</span>
+      <select id="gpus"></select>
+      <span class="help" id="gpu-note"></span>
+    </label>
+  </div>
+
+  <!-- The cluster's queue. The GPUs field above counts this machine's own cards;
+       these are a different pool on a different machine, so the heading says
+       which rather than letting position imply it. Hidden entirely when this
+       server cannot see a scheduler, which is the normal case on a workstation. -->
+  <section class="cluster hidden" id="cluster-box" aria-labelledby="cluster-head">
+    <div class="cluster-head">
+      <h3 id="cluster-head">Cluster</h3>
+      <span class="dim" id="cluster-when"></span>
+      <button type="button" class="ghost cluster-refresh" id="cluster-refresh">Refresh</button>
+    </div>
+    <p class="cluster-lead" id="cluster-lead"></p>
+    <div id="cluster-note" class="hidden"></div>
+    <div class="table-scroll" id="cluster-wrap">
+      <table class="cluster-table">
+        <caption class="sr-only">GPU cards on the cluster, by model</caption>
+        <thead>
+          <tr>
+            <th scope="col">GPU</th>
+            <th scope="col">Free now</th>
+            <th scope="col">If you accept being stopped</th>
+            <th scope="col">In the cluster</th>
+          </tr>
+        </thead>
+        <tbody id="cluster-rows"></tbody>
+      </table>
+    </div>
+    <!-- Where the campaign runs. It sits under the table because the table is
+         what you read to decide: a model is picked here and judged there. -->
+    <div class="cluster-pick" id="cluster-pick">
+      <label>
+        <span>Run on</span>
+        <select id="cluster-gpu"></select>
+      </label>
+      <label>
+        <span>Queue</span>
+        <select id="cluster-queue"></select>
+      </label>
+    </div>
+    <div id="cluster-pick-note" class="hidden"></div>
+    <p class="help" id="cluster-help">
+      The middle column counts cards reachable only through <code>all.q</code>, where
+      another group&rsquo;s job can stop yours mid&#8209;run. Never add the two columns
+      together &mdash; a card is one or the other, not both.
+    </p>
+  </section>
+
+  <details class="more" id="notify-box">
+    <summary>Tell me how it goes <span id="notify-state" class="dim"></span></summary>
+    <div class="sub">
+      <p class="help">
+        A campaign runs for hours. Get a notification on your phone or desktop when it
+        passes halfway, accepts its first design, and finishes — without staying connected.
+      </p>
+      <div class="row notify-row">
+        <label class="grow">
+          <span>Your notification channel</span>
+          <input id="notify-topic" placeholder="press New to create one" spellcheck="false">
+          <span class="help">
+            Anyone who knows this name can see your campaign notifications, so keep it to
+            yourself. The same name works on every device you sign in to.
+          </span>
+        </label>
+        <button id="notify-new" class="ghost" type="button">New</button>
+        <button id="notify-test" class="ghost" type="button">Send test</button>
+      </div>
+      <p class="help" id="notify-how"></p>
+    </div>
+  </details>
+
+  <details class="more">
+    <summary>Design properties and acceptance thresholds</summary>
+    <div class="sub">
+      <p class="help">Optional. Each one adds an objective the design has to satisfy.</p>
+      <div id="properties" class="checks"></div>
+
+      <div class="row conformational">
+        <label class="inline">
+          <span>Shape change on binding</span>
+          <select id="conformational"><option value="">none</option></select>
+        </label>
+      </div>
+
+      <div class="grid">
+        <label>
+          <span>Minimum i_pTM</span>
+          <input type="number" id="f-iptm" step="0.01" min="0" max="1" placeholder="0.7">
+          <span class="help">Interface confidence. Higher accepts fewer.</span>
+        </label>
+        <label>
+          <span>Maximum i_pAE</span>
+          <input type="number" id="f-ipae" step="0.01" min="0" max="1" placeholder="0.35">
+          <span class="help">Interface error. Lower accepts fewer.</span>
+        </label>
+        <label class="inline tickbox">
+          <input type="checkbox" id="reproducible">
+          <span>Reproducible run (fixed seed)</span>
+        </label>
+      </div>
+    </div>
+  </details>
+
+  <p id="estimate" class="note hidden"></p>
+
+  <div class="submit">
+    <button id="submit" class="go big">Start designing</button>
+    <p id="submit-note" class="note hidden"></p>
+  </div>
+</section>
+</main>
+
+<!-- ───────────────────────────────── Jobs ───────────────────────────────── -->
+<main id="view-jobs" class="view hidden">
+  <section class="step">
+    <h2>GPUs</h2>
+    <div id="gpu-strip" class="gpu-strip"></div>
+  </section>
+  <!-- Design runs and reviews are both queued work, but they are not the same
+       kind of thing: one holds cards for hours and makes designs, the other
+       holds none and makes a verdict on designs that already exist. Two
+       sections say that without the reader having to decode a row. -->
+  <!-- Chips rather than a select: each carries its own count, so the row answers
+       "how much is in each project" before anything is clicked. Hidden until a
+       project exists, since one chip reading "All" is a control that cannot do
+       anything. It governs both sections below, which is why it sits above
+       them rather than in either heading. -->
+  <div class="chips hidden" id="project-chips" role="group" aria-label="Filter by project"></div>
+
+  <!-- Appears only with rows ticked. aria-live so the count is announced as it
+       changes, since the bar itself is easy to miss below the fold. -->
+  <div class="picked-bar hidden" id="picked-bar" aria-live="polite">
+    <b id="picked-count"></b>
+    <button type="button" class="ghost" id="picked-move">Move to project…</button>
+    <button type="button" class="ghost" id="picked-archive">Archive</button>
+    <button type="button" class="linky" id="picked-clear">Clear</button>
+  </div>
+
+  <!-- The mover, inline rather than a browser prompt, so a new project can be
+       typed where the existing ones are listed. -->
+  <div class="mover hidden" id="mover">
+    <label class="inline">
+      <span id="mover-what">Move to</span>
+      <select id="mover-pick"></select>
+    </label>
+    <label class="inline hidden" id="mover-new-wrap">
+      <span>Name</span>
+      <input id="mover-new" maxlength="64" placeholder="spike nanobodies">
+    </label>
+    <button type="button" class="go" id="mover-apply">Move</button>
+    <button type="button" class="linky" id="mover-cancel">Cancel</button>
+  </div>
+  <div id="jobs-note" class="hidden"></div>
+  <section class="step">
+    <h2>Campaigns <span id="count-design" class="dim"></span></h2>
+    <div id="jobs"></div>
+  </section>
+  <section class="step">
+    <h2>Reviews <span id="count-review" class="dim"></span></h2>
+    <div id="reviews"></div>
+  </section>
+  <section class="step hidden" id="log-box">
+    <h2>Log <span id="log-for" class="dim"></span></h2>
+    <pre id="log"></pre>
+  </section>
+</main>
+
+<!-- ─────────────────────────────── Results ─────────────────────────────── -->
+<main id="view-results" class="view hidden">
+  <section class="step">
+    <h2>Results <span id="results-scope" class="dim"></span></h2>
+    <!-- Project above campaign: the project narrows what "All campaigns" means,
+         and the campaign select keeps every campaign so that other code can still
+         set its value by job id (the Jobs and Review tabs do). -->
+    <div class="results-pick">
+      <label class="inline">
+        <span>Project</span>
+        <select id="result-project"></select>
+      </label>
+      <label class="inline">
+        <span>Campaign</span>
+        <select id="result-job"></select>
+      </label>
+    </div>
+    <!-- Both numbers, always. The review bundle counts every passed sequence, so a
+         page that said only the ranked count beside it would read as a bug. -->
+    <p class="lead" id="results-summary" aria-live="polite"></p>
+    <div class="results-tools">
+      <div class="chips" id="results-chips" role="group" aria-label="Which designs to show"></div>
+      <div class="actions">
+        <button type="button" class="ghost" id="results-reload">Refresh</button>
+        <button type="button" class="ghost" id="results-export">Export CSV</button>
+      </div>
+    </div>
+    <div id="results-caveat" class="hidden"></div>
+    <div id="results-project" class="rv-strip"></div>
+    <div id="results-reviews" class="rv-strip"></div>
+    <div id="results-bridge" class="bridge hidden"></div>
+    <div id="results-table"></div>
+  </section>
+  <section class="step hidden" id="design-box">
+    <h2>Structure <span id="design-name" class="dim"></span></h2>
+    <div class="viewer-wrap">
+      <div id="design-viewer"></div>
+      <div class="viewer-tools">
+        <div class="seg">
+          <button class="dmode is-on" data-dmode="chain">By chain</button>
+          <button class="dmode" data-dmode="plddt">By confidence</button>
+        </div>
+        <span class="pick-status" id="design-note"></span>
+      </div>
+    </div>
+    <!-- The key for "By confidence". The band words are ordered on purpose:
+         AlphaFold's palette is not monotonic in lightness (L* 66.8, 88.0, 77.3,
+         39.7 from very low to very high), so in greyscale the swatches partly
+         invert and the reading order is what survives. Shown and hidden by
+         paintDesign, not by the button, so a mode set any other way still
+         carries its key. -->
+    <div class="plddt-key hidden" id="plddt-key">
+      <span class="k">AlphaFold pLDDT</span>
+      <span><i style="background: var(--plddt-0)"></i>very low &lt; 50</span>
+      <span><i style="background: var(--plddt-50)"></i>low 50&ndash;70</span>
+      <span><i style="background: var(--plddt-70)"></i>confident 70&ndash;90</span>
+      <span><i style="background: var(--plddt-90)"></i>very high &gt; 90</span>
+    </div>
+    <div id="design-sequence" class="sequence"></div>
+  </section>
+</main>
+
+
+<!-- ─────────────────────────────── Review ─────────────────────────────── -->
+<main id="view-review" class="view hidden">
+  <section class="step">
+    <h2>Review</h2>
+    <p class="lead">A deeper look at a campaign, to decide which designs to order.</p>
+    <p class="help">
+      A binder was designed against the construct you gave BindCraft &mdash; often a trimmed
+      piece of the target &mdash; so it has never seen the rest of the protein. Review puts
+      every design back on the full-length structure and checks what the construct hid:
+      clashes with other subunits or the rest of the chain, contacts running off a cut end,
+      a buried epitope, glycans. It groups designs into backbone families, because ten
+      sequences on one backbone are one idea and not ten, and shows which binding modes the
+      campaign actually found. Without a full-length structure it still does all of that
+      except the checks that need one, and says which it left out.
+    </p>
+    <p class="help">
+      <b>Results</b> shows what came out, straight away, even while a campaign is running.
+      <b>Review</b> is a build of a minute or two. Everything in it is a prediction.
+      A run BindCraft wrote outside this service can be reviewed too: see
+      <b>A run from somewhere else</b>, below.
+    </p>
+    <div id="review-list"></div>
+  </section>
+
+  <!-- A run BindCraft wrote outside this service. Linked, never copied: see bc2serve/imports.py. -->
+  <section class="step" id="review-import">
+    <h2>A run from somewhere else</h2>
+    <p class="help">
+      If you ran BindCraft yourself and want only the review, give the run folder&rsquo;s path on
+      this machine. It is linked here where Review can read it &mdash; nothing is copied, and
+      nothing in your run is written to. Its review is kept with this service&rsquo;s own.
+    </p>
+    <label>
+      <span>Run folder</span>
+      <input id="im-path" spellcheck="false" placeholder="/data/you/bindcraft/my_run">
+      <span class="help">The folder holding 1_Trajectories, 2_Refolded, 3_Ranked and campaign_metadata.json.</span>
+    </label>
+    <details class="more" id="im-more">
+      <summary>If the target structure is not on this machine, or you want another name</summary>
+      <div class="conf-wrap">
+        <p class="help">
+          BindCraft records where the target structure was rather than copying it into the run,
+          so a run carried here from another machine names a path that is not here. Give the
+          structure and it is kept with this service&rsquo;s uploads and used for this run.
+        </p>
+        <label>
+          <span>Target structure</span>
+          <input id="im-construct" spellcheck="false" placeholder="/path/to/target.cif">
+        </label>
+        <label>
+          <span>Call it</span>
+          <input id="im-name" spellcheck="false" placeholder="taken from the folder&rsquo;s name">
+        </label>
+      </div>
+    </details>
+    <div class="submit">
+      <button id="im-add" class="go">Import this run</button>
+      <p id="im-note" class="note hidden"></p>
+    </div>
+    <div id="im-list"></div>
+  </section>
+
+  <section class="step hidden" id="review-panel">
+    <h2>Review <span id="rv-name" class="dim"></span></h2>
+    <dl id="rv-facts" class="facts"></dl>
+    <!-- a project's campaigns: what is going into the review -->
+    <div id="rv-members" class="rv-members"></div>
+
+    <!-- built: where to go -->
+    <div id="rv-done" class="hidden"></div>
+
+    <!-- running -->
+    <div id="rv-build" class="hidden">
+      <div class="build-head">
+        <span id="rv-spin" class="spin" aria-hidden="true"></span>
+        <b id="rv-build-title">Building the review</b>
+        <span id="rv-build-step" class="dim"></span>
+        <span class="spacer"></span>
+        <button id="rv-stop" class="ghost" type="button">Stop</button>
+      </div>
+      <div id="rv-track" class="track hidden"><i id="rv-fill"></i></div>
+      <p class="help" id="rv-build-help">
+        This takes a minute or two. You can leave this page; the build carries on, and if
+        notifications were set up when the designs were queued you will be told when it finishes.
+      </p>
+    </div>
+
+    <!-- failed -->
+    <div id="rv-failed" class="hidden"></div>
+
+    <!-- cannot be built yet: the API says why -->
+    <p id="rv-blocked" class="note bad hidden"></p>
+
+    <!-- setup -->
+    <div id="rv-form">
+      <h3 class="sub-h">Full-length structure</h3>
+      <p class="help">
+        The whole protein the construct was cut from. Every design is placed on it, and it is
+        what the clash, cut-end, buried-epitope and glycan checks look at. Which one to use is
+        not recorded with the designs, so you choose it here.
+      </p>
+
+      <div class="modes" role="radiogroup" aria-label="Full-length reference">
+        <label class="mode" id="rv-mode-reference">
+          <input type="radio" name="rv-mode" value="reference" checked>
+          <div>
+            <b>Compare with a full-length structure</b>
+            <span>Adds the checks that need the rest of the protein. How far to trust them
+              depends on what the structure is.</span>
+          </div>
+        </label>
+        <label class="mode" id="rv-mode-none">
+          <input type="radio" name="rv-mode" value="none">
+          <div>
+            <b>Review without one</b>
+            <span>A narrower review that claims only what the designs themselves show.</span>
+          </div>
+        </label>
+      </div>
+
+      <!-- no reference: what that does and does not leave out -->
+      <div id="rv-nonepart" class="conf-wrap hidden"></div>
+
+      <div id="rv-refpart">
+        <div id="rv-suggest" class="refopts"></div>
+
+        <label>
+          <span>Structure file</span>
+          <input id="rv-ref" list="rv-ref-choices" spellcheck="false" placeholder="/full/path/to/structure.cif">
+          <datalist id="rv-ref-choices"></datalist>
+          <span class="help" id="rv-ref-note"></span>
+        </label>
+
+        <!-- how far an AlphaFold reference can be trusted outside the construct; advice only -->
+        <div id="rv-conf" class="conf-wrap hidden" aria-live="polite"></div>
+
+        <!-- which chain is the target and which chains the binder is checked against: what the build will do, said before it does it -->
+        <div id="rv-chains" class="chains hidden" aria-live="polite"></div>
+
+        <div class="addrow">
+          <span class="addlabel">Don&rsquo;t have it here?</span>
+          <button id="rv-upload" class="ghost" type="button">Upload a file</button>
+          <input type="file" id="rv-file" accept=".pdb,.ent,.cif,.mmcif" hidden>
+          <span class="addgroup">
+            <input id="rv-pdb" class="short" placeholder="PDB code" maxlength="4" spellcheck="false">
+            <button id="rv-pdb-go" class="ghost" type="button">Fetch from PDB</button>
+          </span>
+          <span class="addgroup hidden" id="rv-af-box">
+            <input id="rv-af" class="mid" placeholder="UniProt, e.g. P69905" maxlength="12" spellcheck="false">
+            <button id="rv-af-go" class="ghost" type="button">Fetch AlphaFold</button>
+          </span>
+        </div>
+        <p class="help addhelp">
+          Choose one that holds the whole chain, not another fragment. For an oligomer, one that
+          holds the whole assembly is worth having: the other subunits are what the
+          other-subunit check looks at, and the chains it found are listed above. An AlphaFold
+          model covers the whole chain, but it is a prediction and one conformation, so what
+          it finds is advisory; a measured structure is the stronger reference.
+        </p>
+
+        <details class="more" id="rv-advanced">
+          <summary>Advanced <span id="rv-adv-state" class="dim"></span></summary>
+          <div class="sub">
+            <div class="grid">
+              <label>
+                <span>UniProt accession</span>
+                <input id="rv-uniprot" placeholder="e.g. P69905" maxlength="12" spellcheck="false">
+                <span class="help">Names the protein, and lets the build check the reference&rsquo;s sequence against its record.</span>
+              </label>
+              <label>
+                <span>How designs are placed</span>
+                <select id="rv-placement">
+                  <option value="interface">Fit around the interface (default)</option>
+                  <option value="whole">Fit the whole target</option>
+                </select>
+                <span class="help">The default keeps the binder where it sits against the epitope. Fitting the whole target can leave it 1 to 3 &Aring; off where BindCraft&rsquo;s copy of the target differs.</span>
+              </label>
+            </div>
+            <label class="check topgap">
+              <input type="checkbox" id="rv-online">
+              <div>
+                <b>Look up annotations online</b>
+                <span>Needed for domains, membrane position and the sequence cross-check. This machine reaches only a few outside hosts, so a lookup can fail; leave it off if you do not need them.</span>
+              </div>
+            </label>
+          </div>
+        </details>
+      </div>
+
+      <p id="rv-carry" class="help hidden">
+        A project review keeps its own decisions, so what you have marked in a campaign&rsquo;s
+        own review is not in it to begin with. Once it is built, its order list offers to
+        bring those over from this browser.
+      </p>
+      <div class="submit">
+        <button id="rv-start" class="go big">Build the review</button>
+        <p id="rv-start-note" class="note hidden"></p>
+      </div>
+    </div>
+
+    <details class="more" id="rv-log-box">
+      <summary>Build log</summary>
+      <pre id="rv-log" class="logbox"></pre>
+    </details>
+  </section>
+</main>
+
+<!-- ─────────────────────────────── Storage ─────────────────────────────── -->
+<!-- Reports what is on disk and what could be given back. It archives and it
+     reports; it never deletes, so there is no delete control anywhere here and no
+     command to paste. A path is shown so you can act on it in a shell yourself. -->
+<main id="view-storage" class="view hidden">
+  <section class="step">
+    <h2>Storage <span id="st-when" class="dim" role="status" aria-live="polite"></span></h2>
+    <p class="help">
+      What your campaigns and their reviews take on disk, by project. Binderscope reports this and
+      archives campaigns; it never deletes results. Anything you decide to remove, you remove
+      yourself, from the path shown.
+    </p>
+    <div class="st-bar">
+      <span class="dim" id="st-detail"></span>
+      <div class="actions">
+        <button type="button" class="ghost" id="st-refresh">Refresh</button>
+      </div>
+    </div>
+    <div id="st-note" class="notes-list" aria-live="polite"></div>
+  </section>
+
+  <section class="step">
+    <h2>Projects</h2>
+    <div id="st-projects"></div>
+  </section>
+
+  <section class="step">
+    <h2>Campaigns and reviews <span id="st-folders-count" class="dim"></span></h2>
+    <p class="help">
+      One line per folder, each measured on its own. Refresh re-measures just that folder; the
+      button at the top re-measures everything.
+    </p>
+    <div id="st-folders"></div>
+  </section>
+
+  <section class="step">
+    <h2>Free space</h2>
+    <p class="help">Per filesystem, not per folder: two results folders on one disk share one figure.</p>
+    <div id="st-disks"></div>
+  </section>
+
+  <section class="step">
+    <h2>What could be reclaimed <span id="st-reclaim-count" class="dim"></span></h2>
+    <div id="st-reclaim"></div>
+  </section>
+
+  <section class="step">
+    <h2>Archived campaigns <span id="st-archived-count" class="dim"></span></h2>
+    <p class="help">Archiving hides a campaign from the lists; nothing on disk is touched. Restore brings it and its reviews back. Tick several to restore them together.</p>
+    <!-- The Jobs tab's selection bar, for the archived list. aria-live so the count is announced. -->
+    <div class="picked-bar hidden" id="st-picked-bar" aria-live="polite">
+      <b id="st-picked-count"></b>
+      <button type="button" class="ghost" id="st-picked-restore">Restore</button>
+      <button type="button" class="linky" id="st-picked-clear">Clear</button>
+    </div>
+    <div id="st-archived"></div>
+  </section>
+</main>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,1167 @@
+/* Binderscope — launch, watch and review protein binder design campaigns.
+
+   The palette is cryoQ's Slate + Steel Blue, so the two tools in this lab's
+   suite share one chrome and nobody relearns a colour on the way between them.
+   What does NOT come from cryoQ is the domain layer: --hot and --cold mark
+   "bind here" and "keep clear" on a structure, and those two have to stay
+   unmistakable next to a 3D canvas, so they keep their own warmer and cooler
+   hues rather than being folded into the status colours.
+
+   Three text tiers and four surfaces. The reason for the third and fourth is
+   practical: a card that is unselected but still readable needs a surface that
+   is recessed from the panel without dimming its text, and before these existed
+   the only way to express "not chosen" was to fade the whole control. */
+
+:root {
+  color-scheme: light;
+
+  /* neutrals — cool slate */
+  --bg: #f4f6f9;
+  --panel: #ffffff;
+  --surface-2: #eef1f6;      /* a control at rest inside a panel */
+  --surface-3: #e2e7ef;      /* a well: table heads, inset strips */
+  --ink: #1a1f28;
+  --ink-soft: #4d5866;
+  /* Not a text colour, in either theme:
+     light  #7d8898 → 3.32 bg / 3.59 panel / 3.17 surface-2 / 2.89 surface-3
+     dark   #6c7684 → 4.11 bg / 3.76 panel / 3.23 surface-2 / 2.81 surface-3
+     Best of the eight is 4.11, so it fails AA at every normal size on every
+     surface this app has. Nothing uses it and nothing should — for quiet text
+     use --ink-soft (7.0:1 on panel). Declared, not deleted, because the design
+     system it came from defines this tier: drop it and it gets copied back in
+     without the measurements. */
+  --ink-faint: #7d8898;
+  --line: #d9dee5;
+  --line-strong: #b5bcc7;
+
+  /* accent — muted steel blue */
+  --accent: #3f6d99;
+  --accent-hover: #305881;
+  --accent-ink: #ffffff;
+  --accent-halo: rgba(63, 109, 153, .30);
+
+  /* Status. This app paints these as text roughly twenty-five times and as a
+     fill once, so the tokens carry cryoQ's *text* values, not its accent ones:
+     its #639922 success green is built to fill a chip and only reaches 3.2:1
+     as text on white. The accent values live beside them for the fill case. */
+  --good: #27500a;
+  --warn: #6b4a00;
+  --bad: #8f2020;
+  --good-fill: #639922;
+  --warn-fill: #d97706;
+  --bad-fill: #e24b4a;
+
+  /* callout families: a note, a warning and a refusal each get a ground of
+     their own instead of borrowing the status colour at some opacity */
+  --info-bg: #edf3fb;  --info-line: #c9dcf2;  --info-ink: #234b7c;
+  --warn-bg: #fef4e0;  --warn-line: #f0dfa6;  --warn-ink: #6b4a00;
+  --bad-bg: #fbecec;   --bad-line: #f3c9c9;   --bad-ink: #8f2020;
+  --good-bg: #eaf3de;  --good-line: #cee9d3;  --good-ink: #27500a;
+
+  /* domain — epitope marking, deliberately outside the status family.
+     Each carries its own ink because white fails on both: 3.58:1 on hot here
+     and 2.23:1 in dark. Hot wants dark ink in either theme; cold is dark
+     enough in light to take white, and too light in dark, so it flips. */
+  --hot: #e8590c;
+  --cold: #0b7285;
+  --hot-ink: #0d1117;
+  --cold-ink: #ffffff;
+
+  /* AlphaFold's canonical confidence bands, identical to
+     binderscope/viewer/css/shared.css:20 — the two viewers must keep speaking
+     one colour language, so these stay in step with that file. Deliberately
+     outside the theme blocks: the palette is recognised by sight and does not
+     change between light and dark. */
+  --plddt-90: #0053d6; --plddt-70: #65cbf3; --plddt-50: #ffdb13; --plddt-0: #ff7d45;
+
+  --radius-sm: 6px;
+  --radius: 10px;
+  --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .04);
+}
+
+/* The dark palette is written twice on purpose: once for the system
+   preference and once for an explicit choice. Keep the two in step. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0d1117; --panel: #161b22; --surface-2: #202832; --surface-3: #2a323d;
+    --ink: #e6eaf0; --ink-soft: #a8b1bd; --ink-faint: #6c7684;
+    --line: #2a323d; --line-strong: #3d4756;
+    --accent: #6ea3d1; --accent-hover: #8ab6dd; --accent-ink: #0d1117;
+    --accent-halo: rgba(110, 163, 209, .40);
+    --good: #4fc19b; --warn: #ecab4a; --bad: #ef6a6a;
+    --good-fill: #4fc19b; --warn-fill: #ecab4a; --bad-fill: #ef6a6a;
+    --info-bg: #16233c; --info-line: rgba(110,163,209,.40); --info-ink: #b5cee6;
+    --warn-bg: #2a2213; --warn-line: #58461f; --warn-ink: #f2d98a;
+    --bad-bg: #2b1718;  --bad-line: #5c2626;  --bad-ink: #f2a5a5;
+    --good-bg: #182619; --good-line: #2f4d34; --good-ink: #b7dea1;
+    --hot: #ff922b; --cold: #3bc9db; --hot-ink: #0d1117; --cold-ink: #0d1117;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0d1117; --panel: #161b22; --surface-2: #202832; --surface-3: #2a323d;
+  --ink: #e6eaf0; --ink-soft: #a8b1bd; --ink-faint: #6c7684;
+  --line: #2a323d; --line-strong: #3d4756;
+  --accent: #6ea3d1; --accent-hover: #8ab6dd; --accent-ink: #0d1117;
+  --accent-halo: rgba(110, 163, 209, .40);
+  --good: #4fc19b; --warn: #ecab4a; --bad: #ef6a6a;
+    --good-fill: #4fc19b; --warn-fill: #ecab4a; --bad-fill: #ef6a6a;
+  --info-bg: #16233c; --info-line: rgba(110,163,209,.40); --info-ink: #b5cee6;
+  --warn-bg: #2a2213; --warn-line: #58461f; --warn-ink: #f2d98a;
+  --bad-bg: #2b1718;  --bad-line: #5c2626;  --bad-ink: #f2a5a5;
+  --good-bg: #182619; --good-line: #2f4d34; --good-ink: #b7dea1;
+  --hot: #ff922b; --cold: #3bc9db; --hot-ink: #0d1117; --cold-ink: #0d1117;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+}
+
+* { box-sizing: border-box; }
+
+/* A <button> inherits neither colour nor background: left alone it takes the
+   browser's buttontext and buttonface, which are black and mid-grey. That is
+   why the binder cards read as empty boxes on the dark ground and why the
+   viewer toggles sat on a grey slab. Resetting both means a new control is
+   legible before anyone styles it; one that wants its own (.go, .src.is-on)
+   still just sets it, and a class beats an element selector. */
+button, input, select, textarea { font: inherit; color: inherit; }
+button { background-color: transparent; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------------------------------------------------------- top bar */
+
+.bar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 24px;
+  padding: 0 20px; height: 56px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: center; gap: 9px; font-weight: 650; letter-spacing: -.01em; }
+/* The orange dot is --hot because it means what --hot means on a structure:
+   bind here. Keep it the only orange in the mark. */
+.mark { width: 20px; height: 20px; flex: none; display: block; }
+.mark-stem { fill: var(--accent); }
+.mark-bowl { fill: none; stroke: var(--accent); }
+.mark-hot { fill: var(--hot); }
+.brand-name { font-weight: 650; }
+/* The engine is credited, not branded: set in the third text tier at caption
+   size so it reads as provenance rather than as part of the product name. */
+.brand-engine {
+  font-size: 11.5px; font-weight: 500; color: var(--ink-soft);
+  border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px;
+  letter-spacing: 0; white-space: nowrap;
+}
+.dim { color: var(--ink-soft); font-weight: 450; }
+
+.tabs { display: flex; gap: 2px; margin-right: auto; }
+.tab {
+  border: 0; background: none; color: var(--ink-soft);
+  padding: 7px 13px; border-radius: 7px; cursor: pointer;
+  font: inherit; font-weight: 550;
+}
+.tab:hover { background: var(--bg); color: var(--ink); }
+.tab.is-on { background: var(--bg); color: var(--ink); }
+.pill {
+  display: none; margin-left: 5px; padding: 1px 7px; border-radius: 99px;
+  background: var(--accent); color: var(--accent-ink); font-size: 12px; font-weight: 650;
+}
+.pill.show { display: inline-block; }
+
+.who { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-soft); }
+.who input { width: 150px; }
+
+/* The confidence key. Swatch then words, and the words carry the order, so the
+   scale reads top to bottom even where the colours do not. */
+.plddt-key {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin: 10px 0 0; font-size: 12.5px; color: var(--ink-soft);
+}
+.plddt-key .k {
+  font-size: 11.5px; font-weight: 650; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--ink-soft);
+}
+.plddt-key span { display: inline-flex; align-items: center; gap: 6px; }
+.plddt-key i {
+  width: 11px; height: 11px; border-radius: 3px; flex: 0 0 auto;
+  /* A hairline so the pale bands keep an edge on a light ground. */
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .18);
+}
+
+/* ------------------------------------------------- projects on the Jobs page */
+
+/* Sits between the GPU strip and the two job sections because it governs both. */
+.chips { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -4px 0 14px; }
+.chips .eyebrow {
+  font-size: 11.5px; font-weight: 650; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--ink-soft); margin-right: 2px;
+}
+.chip {
+  cursor: pointer; border-radius: 99px; padding: 6px 13px; font-size: 13px;
+  background: var(--panel); border: 1px solid var(--line); color: var(--ink-soft);
+}
+.chip:hover { color: var(--ink); border-color: var(--line-strong); }
+.chip.is-on {
+  background: var(--accent); border-color: var(--accent);
+  color: var(--accent-ink); font-weight: 600;
+}
+/* The count rides inside the chip in currentColor, so it follows the chip through
+   its selected state. It used to be dimmed with opacity .72, which measured 3.65:1
+   on an unselected chip in light mode and failed AA; the label's own weight now
+   sets the two apart instead. */
+.chip .n { margin-left: 6px; font-variant-numeric: tabular-nums; }
+
+.picked-bar {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--surface-3); border: 1px solid var(--line-strong);
+  border-radius: var(--radius); padding: 11px 15px; margin-bottom: 14px;
+}
+.picked-bar b { font-size: 14px; }
+.picked-bar .linky { margin-left: auto; }
+
+.mover {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 11px 15px; margin-bottom: 14px;
+}
+.mover .inline span { font-size: 13px; font-weight: 550; color: var(--ink-soft); }
+.mover select, .mover input { width: auto; min-width: 190px; }
+
+/* A text button that reads as a link but is a button, because it acts on this
+   page rather than going anywhere. */
+.linky {
+  background: transparent; border: 0; padding: 4px 2px; cursor: pointer;
+  color: var(--accent-hover); font-size: 13.5px; text-decoration: underline;
+}
+/* --accent-hover at rest, not --accent: this sits on --surface-3, where the
+   plain accent measures 4.38:1 and fails AA. Hover goes to --ink, so contrast
+   rises on hover in both themes rather than falling in one of them. */
+.linky:hover { color: var(--ink); }
+
+/* A project heading inside the Campaigns list. Quieter than the section's own
+   h2: it divides a list that already has a name. */
+.group-project {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding-bottom: 9px; margin: 18px 0 10px; border-bottom: 1px solid var(--line);
+}
+.group-project:first-child { margin-top: 0; }
+.group-project .name {
+  font-size: 11.5px; font-weight: 650; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--ink-soft);
+}
+.group-project .summary { font-size: 12px; color: var(--ink-soft); }
+
+/* The row's own project. A campaign's is a button — it can be changed here;
+   a review's is text, because a review follows the campaign it is about and
+   changing it on the review alone would be a lie. */
+.job .proj {
+  border-radius: 99px; padding: 3px 10px; font-size: 12px;
+  background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-soft);
+}
+button.proj { cursor: pointer; }
+button.proj:hover { color: var(--ink); border-color: var(--line-strong); }
+.job .tick { width: 15px; height: 15px; accent-color: var(--accent); flex: 0 0 auto; }
+.job.is-picked { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+
+/* The bar carries a brand, five tabs and a name field, which is more than fits
+   on a phone. Navigation is what has to survive, so the engine credit goes
+   first and the name field second; both are recoverable by widening. */
+@media (max-width: 860px) {
+  .brand-engine { display: none; }
+}
+@media (max-width: 680px) {
+  .bar { gap: 12px; padding: 0 12px; }
+  .who span { display: none; }
+  .who input { width: 92px; }
+  .tabs { gap: 0; }
+  .tab { padding: 7px 9px; }
+}
+/* 580 and not the 460 it was with four tabs: the fifth tab pushes the name field
+   past the edge between 461 and 558, which stretched the page sideways. */
+@media (max-width: 580px) {
+  .who { display: none; }
+  .brand-name { font-size: 14px; }
+  /* Every tab has to stay reachable: the strip scrolls rather than clipping
+     Review off the edge, where it is both invisible and unreachable. */
+  .tabs {
+    overflow-x: auto; flex: 1 1 auto; min-width: 0;
+    scrollbar-width: none; -ms-overflow-style: none;
+  }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tab { flex: 0 0 auto; }
+  .brand { flex: 0 0 auto; }
+}
+
+/* ---------------------------------------------------------------- layout */
+
+.view { max-width: 920px; margin: 0 auto; padding: 24px 20px 80px; }
+
+.step {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 22px 24px;
+  margin-bottom: 18px;
+  box-shadow: var(--shadow);
+}
+.step h2 {
+  margin: 0 0 4px; font-size: 17px; font-weight: 650; letter-spacing: -.01em;
+  display: flex; align-items: center; gap: 10px;
+}
+/* A count or subject beside a section heading. Two things follow from the
+   heading being a flex row: it would otherwise be set at heading size, and the
+   10px gap is spent on it even when it is empty, so an empty one has to leave
+   the layout rather than merely go blank. */
+.step h2 .dim { font-size: 12.5px; font-weight: 500; letter-spacing: 0; min-width: 0; overflow-wrap: anywhere; }
+.step h2 .dim:empty { display: none; }
+.num {
+  display: grid; place-items: center;
+  width: 23px; height: 23px; border-radius: 50%;
+  background: var(--accent); color: var(--accent-ink);
+  font-size: 12.5px; font-weight: 700;
+}
+.help { color: var(--ink-soft); font-size: 13.5px; margin: 0 0 14px; }
+.sub { margin-top: 14px; }
+
+/* ---------------------------------------------------------------- controls */
+
+input, select, button, textarea { font: inherit; }
+
+input[type=text], input[type=number], input:not([type]), select {
+  width: 100%;
+  padding: 8px 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--ink);
+}
+/* A <summary> belongs here too. Left out, it fell through to the browser's own
+   ring: 1px at 2.4:1, and orange, which in this app is --hot, "bind here". A
+   focus indicator must not speak the domain's vocabulary. */
+input:focus, select:focus, button:focus-visible, summary:focus-visible,
+th[tabindex]:focus-visible, tbody tr[tabindex]:focus-visible, .result-card:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent;
+}
+/* A filled control cannot wear the accent ring unaided. On an accent fill the
+   two are the same colour; on the --hot fill they are different hues of nearly
+   equal luminance, which is 1.2:1 and just as weak, since contrast is a
+   luminance test and not a colour one. The halo lays a panel-coloured stroke
+   between fill and ring — the two-tone indicator WCAG 2.4.13 asks for — so the
+   ring itself stays one colour across the whole app. */
+.go:focus-visible, .src.is-on:focus-visible, .mode.is-on:focus-visible,
+.dmode.is-on:focus-visible, .look.is-on:focus-visible {
+  box-shadow: 0 0 0 2px var(--panel);
+}
+/* The browser's own placeholder grey is #757575, which reaches 4.11:1 on these
+   fields and fails AA. These are not hints: they carry the default thresholds
+   and the instruction for the notification channel, so they have to be read.
+   The explicit opacity is for Firefox, which fades placeholders by default. */
+::placeholder { color: var(--ink-soft); opacity: 1; }
+input[type=number] { width: 88px; }
+
+label > span:first-child { display: block; font-size: 13px; font-weight: 550; margin-bottom: 5px; }
+label .help { margin: 5px 0 0; font-size: 12.5px; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 16px; }
+.row { display: flex; gap: 10px; align-items: flex-start; }
+.inline { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.inline > span:first-child { margin: 0; }
+.tickbox { align-self: end; }
+.tickbox input { width: auto; }
+
+.go {
+  border: 0; border-radius: 8px; cursor: pointer;
+  background: var(--accent); color: var(--accent-ink);
+  padding: 9px 16px; font-weight: 600; white-space: nowrap;
+}
+.go:hover { filter: brightness(1.07); }
+.go:disabled { opacity: .5; cursor: not-allowed; filter: none; }
+.go.big { padding: 12px 24px; font-size: 15.5px; }
+
+.ghost {
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink-soft);
+  border-radius: 7px; padding: 6px 11px; cursor: pointer;
+}
+.ghost:hover { color: var(--ink); }
+
+.submit { margin-top: 20px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+
+.more { margin-top: 18px; border-top: 1px solid var(--line); padding-top: 14px; }
+.more summary { cursor: pointer; font-weight: 550; font-size: 14px; color: var(--ink-soft); }
+.more summary:hover { color: var(--ink); }
+
+/* ---------------------------------------------------------------- target source */
+
+.source-pick { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+.src {
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink-soft);
+  padding: 7px 14px; border-radius: 8px; cursor: pointer; font-weight: 550;
+}
+.src:hover { color: var(--ink); }
+.src.is-on { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.src-panel > * + * { margin-top: 10px; }
+
+.drop {
+  display: grid; place-items: center; gap: 3px;
+  padding: 26px; border: 1.5px dashed var(--line); border-radius: var(--radius);
+  cursor: pointer; text-align: center;
+}
+.drop:hover, .drop.over { border-color: var(--accent); background: var(--bg); }
+.drop .help { margin: 0; }
+
+.targets { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
+.target {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 11px 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg);
+}
+.target.is-on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.target b { font-weight: 600; }
+.target .path { color: var(--ink-soft); font-size: 12.5px; }
+.target select { width: auto; padding: 4px 8px; font-size: 13px; }
+.target .spacer { margin-left: auto; }
+.x {
+  border: 0; background: none; color: var(--ink-soft); cursor: pointer;
+  font-size: 18px; line-height: 1; padding: 2px 6px; border-radius: 6px;
+}
+.x:hover { background: var(--line); color: var(--bad); }
+
+/* ---------------------------------------------------------------- viewer */
+
+.viewer-wrap { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+#viewer, #design-viewer {
+  position: relative; width: 100%; height: 420px; background: var(--bg);
+}
+.viewer-tools {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 9px 12px; border-top: 1px solid var(--line); background: var(--panel);
+}
+.viewer-tools select { width: auto; padding: 5px 9px; font-size: 13px; }
+/* The clip keeps the segmented corners, but it left 1px of room for a ring that
+   needs 3px, so the indicator survived only as two stubs where it crossed a
+   divider. The clip margin lets the ring out while the group still clips its
+   children; browsers without `clip` keep the `hidden` above it. */
+.seg {
+  display: flex; border: 1px solid var(--line); border-radius: 8px;
+  overflow: hidden; overflow: clip; overflow-clip-margin: 3px;
+}
+.mode, .dmode {
+  border: 0; background: var(--panel); color: var(--ink-soft);
+  padding: 6px 13px; cursor: pointer; font-size: 13.5px; font-weight: 550;
+}
+.mode + .mode, .dmode + .dmode { border-left: 1px solid var(--line); }
+.mode.is-on[data-mode="hotspots"] { background: var(--hot); color: var(--hot-ink); }
+.mode.is-on[data-mode="coldspots"] { background: var(--cold); color: var(--cold-ink); }
+.dmode.is-on { background: var(--accent); color: var(--accent-ink); }
+.pick-status { font-size: 13px; color: var(--ink-soft); margin-left: auto; }
+
+.spot-readout { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+@media (max-width: 640px) { .spot-readout { grid-template-columns: 1fr; } }
+label > span.tag:first-child, .tag {
+  display: inline-block;
+  width: auto; padding: 1px 8px; border-radius: 99px;
+  font-size: 12px; font-weight: 650;
+}
+.tag.hot { background: var(--hot); color: var(--hot-ink); }
+.tag.cold { background: var(--cold); color: var(--cold-ink); }
+
+/* ---------------------------------------------------------------- cards */
+
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(188px, 1fr)); gap: 10px; }
+/* A step that cannot be used yet keeps its place and its number, so the sequence
+   never has a hole in it, and says in one line what will open it. Only the step's
+   own controls are hidden; the heading stays at full contrast, because a reader
+   needs to be able to read what is coming. */
+.step.is-waiting > *:not(h2):not(.help):not(.waiting-note) { display: none; }
+.step.is-waiting .help { margin-bottom: 10px; }
+.waiting-note {
+  margin: 0; padding: 11px 14px; border-radius: var(--radius-sm);
+  background: var(--surface-2); border: 1px dashed var(--line-strong);
+  color: var(--ink-soft); font-size: 13.5px;
+}
+.step:not(.is-waiting) .waiting-note { display: none; }
+
+/* An unchosen card is recessed by its surface, not by fading its text: the
+   binder format is the thing being read, so it stays at full contrast whether
+   or not it is the one selected. */
+.card {
+  text-align: left; cursor: pointer; color: var(--ink);
+  border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2);
+  padding: 12px 14px; transition: background .12s, border-color .12s;
+}
+.card:hover { border-color: var(--line-strong); background: var(--panel); }
+.card.is-on {
+  border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
+  background: var(--panel);
+}
+.card b { display: block; font-size: 14px; font-weight: 620; margin-bottom: 2px; color: var(--ink); }
+.card span { color: var(--ink-soft); font-size: 12.5px; line-height: 1.4; }
+
+.checks { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 9px; }
+.check { display: flex; gap: 9px; align-items: flex-start; cursor: pointer; }
+.check input { width: auto; margin-top: 3px; }
+.check b { font-weight: 550; font-size: 13.5px; }
+.check span { display: block; color: var(--ink-soft); font-size: 12.5px; }
+.conformational { margin: 14px 0; }
+
+/* ---------------------------------------------------------------- jobs */
+
+/* Four across, so this machine's eight cards read as two rows of four rather
+   than as however many happen to fit the window. A fixed count also keeps the
+   two rows aligned, which is what makes the memory bars comparable at a
+   glance; auto-fit gave each card a different width at every window size. */
+.gpu-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+@media (max-width: 760px) { .gpu-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.gpu {
+  border: 1px solid var(--line); border-radius: 9px; padding: 9px 11px; background: var(--bg);
+  font-size: 12.5px;
+}
+.gpu-head { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; }
+.gpu-head b { font-size: 13px; font-weight: 620; white-space: nowrap; }
+.gpu .state { font-weight: 600; font-size: 12px; text-align: right; }
+.gpu.free .state { color: var(--good); }
+.gpu.ours .state { color: var(--accent); }
+.gpu.other .state { color: var(--warn); }
+.gpu.reserved { opacity: .55; }
+
+/* The memory bar. Three channels carry one number on purpose: the length of
+   the fill, the GB printed under it, and the colour. The colour is the
+   redundant one — drop it, in greyscale or in print, and the bar and the
+   figures still say everything. That is the order it was built in. */
+.mem {
+  height: 6px; margin: 8px 0 5px; border-radius: 99px;
+  background: var(--surface-3); overflow: hidden;
+}
+.mem i { display: block; height: 100%; border-radius: 99px; }
+.mem i.lvl-low  { background: var(--good-fill); }
+.mem i.lvl-mid  { background: var(--warn-fill); }
+.mem i.lvl-high { background: var(--bad-fill); }
+.mem-num { font-size: 12px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.gpu .mem-num b { display: inline; font-size: 12px; font-weight: 650; color: var(--ink); }
+
+.job {
+  display: flex; align-items: center; gap: 13px; flex-wrap: wrap;
+  padding: 13px 15px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--bg); margin-bottom: 8px;
+}
+.job b { font-weight: 620; }
+/* The meta takes the slack so the buttons stay right-aligned; min-width:0 is
+   what lets a long "finished while…" message shrink instead of forcing a wrap. */
+.job .meta { color: var(--ink-soft); font-size: 12.5px; flex: 1 1 auto; min-width: 0; }
+/* margin-left:auto rather than a spacer element, so the buttons are one flex
+   item that wraps whole instead of four that wrap one at a time. */
+.job .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-left: auto; }
+/* A review used to be set back a step inside the campaign list — dashed, lighter
+   — because that was the only way to say it was a different kind of work. It has
+   its own section now, so the de-emphasis would only make reviews harder to read
+   than the campaigns they are about. The class stays as a hook for the row's
+   different buttons. */
+
+/* Finished runs, under the ones still going. The rule above it is what makes
+   this a division rather than just another heading. */
+.group-label {
+  margin: 15px 0 9px; padding-top: 12px; border-top: 1px solid var(--line);
+  font-size: 11.5px; font-weight: 650; letter-spacing: .05em;
+  text-transform: uppercase; color: var(--ink-soft);
+}
+.more { margin-top: 2px; }
+
+/* Rebuilds of one campaign's review, under the row that stands for them. They
+   are indented and set on the panel's own ground rather than the recessed one,
+   so the row above reads as the thing and these as its history. */
+.builds-toggle { margin: -4px 0 8px 16px; font-size: 12px; padding: 3px 9px; }
+.job.is-old {
+  margin-left: 26px; background: transparent; border-color: var(--line);
+  padding: 9px 13px;
+}
+.job.is-old b { font-weight: 560; color: var(--ink-soft); }
+/* The one sentence that answers "what is this page for", ahead of the paragraph
+   that explains why it is worth doing. */
+.lead { font-size: 15px; color: var(--ink); margin: 0 0 10px; }
+.state-chip {
+  padding: 2px 10px; border-radius: 99px; font-size: 12px; font-weight: 650;
+  border: 1px solid transparent;
+}
+.state-queued  { color: var(--ink-soft); border-color: var(--line); }
+.state-running { color: var(--accent); border-color: currentColor; }
+.state-done    { color: var(--good); border-color: currentColor; }
+.state-failed, .state-cancelled { color: var(--bad); border-color: currentColor; }
+
+pre#log, pre.logbox {
+  margin: 0; padding: 14px; max-height: 460px; overflow: auto;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 9px;
+  font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  white-space: pre-wrap; word-break: break-word;
+}
+
+/* ---------------------------------------------------------------- results */
+
+table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { font-weight: 620; color: var(--ink-soft); font-size: 12.5px; white-space: nowrap; cursor: pointer; }
+th:hover { color: var(--ink); }
+tbody tr { cursor: pointer; }
+tbody tr:hover { background: var(--bg); }
+tbody tr.is-on { background: var(--bg); box-shadow: inset 2px 0 0 var(--accent); }
+td.num-cell { font-variant-numeric: tabular-nums; }
+.table-scroll { overflow-x: auto; margin-top: 12px; }
+
+/* The Results header: Project and Campaign side by side, then the one line that
+   states both counts, then the chip and the buttons that trail the row. */
+.results-pick { display: flex; flex-wrap: wrap; gap: 10px 22px; margin: 6px 0 14px; }
+.results-pick label { min-width: 0; }
+.results-pick select { width: auto; min-width: 200px; max-width: 100%; }
+.step .lead:empty { display: none; }
+.results-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; margin: 2px 0 12px; }
+.results-tools .chips { margin: 0; }
+.results-tools .chips:empty { display: none; }
+.results-tools .actions, .st-bar .actions { display: flex; gap: 8px; margin-left: auto; }
+#results-caveat:not(.hidden) { margin: 0 0 12px; }
+/* No opacity: a dimmed button reads at half contrast. The label says what is happening. */
+.ghost:disabled { cursor: wait; }
+
+.results-table th, .results-table td { padding: 8px 7px; }
+.results-table th:first-child, .results-table td:first-child { padding-left: 10px; }
+/* The long header is allowed two lines: it names a concept, the cells under it are short. */
+.results-table th { white-space: normal; vertical-align: bottom; }
+.results-table th:nth-child(3) { min-width: 5.5rem; }
+/* The two columns that grow with the data, bounded so the table fits whatever the
+   campaign names and design ids are. Design: the seven-character hash, then the
+   sequence tag on a second line, capped and ellipsised with the full id in its
+   title (the row's title carries it too). Campaign: wraps anywhere instead of
+   widening, since a campaign name is one unbroken word and can be any length. The
+   Sequence column cannot grow: the cell shows a fixed 6 + 4 residues. */
+.results-table .id-tail {
+  display: block; max-width: 6.5rem; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
+.results-table td:first-child { overflow-wrap: anywhere; }
+/* A rank or a family's size sits beside its number, quieter, never alone. */
+td .sibs { margin-left: 2px; font-size: 12px; color: var(--ink-soft); white-space: nowrap; }
+
+/* One line per campaign: its counts, its review, the way in. */
+.rv-strip { margin: 0 0 8px; }
+.rv-strip:empty { display: none; }
+.rv-line {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px 14px;
+  padding: 8px 0; border-bottom: 1px solid var(--line);
+  font-size: 13px; color: var(--ink-soft);
+}
+.rv-line b { color: var(--ink); font-weight: 620; min-width: 0; overflow-wrap: anywhere; }
+.rv-line .counts { font-variant-numeric: tabular-nums; }
+.rv-line .actions { margin-left: auto; }
+.rv-line .ghost { display: inline-block; padding: 3px 10px; font-size: 12.5px; text-decoration: none; }
+.rv-line .is-current { color: var(--good); font-weight: 600; }
+.rv-line .is-stale { color: var(--warn); font-weight: 600; }
+.rv-line.is-missing { color: var(--warn); }
+.rv-strip .help { margin: 10px 0 0; font-size: 12.5px; }
+/* The project's own line, above its campaigns': a ground and an accent edge so it reads as the
+   whole and not as one more campaign. Ink stays --ink / --ink-soft on --surface-2. */
+.rv-line.rv-project {
+  margin: 0 0 8px; padding: 9px 12px;
+  background: var(--surface-2); border: 1px solid var(--line); border-left: 4px solid var(--accent);
+  border-radius: 8px;
+}
+
+/* What a campaign is, beside its counts: modality, target, epitope. Each is a word
+   in a ring, so the meaning is in the text and the ring colour is the second signal.
+   "no hotspots set" takes the warn ink because it is the one that must not be read as
+   a blank; "not recorded" stays quiet, since it says the file was silent and nothing
+   about the campaign. */
+.rv-meta { display: inline-flex; flex-wrap: wrap; gap: 4px 6px; }
+.rv-tag {
+  font-size: 12px; font-weight: 600; padding: 1px 9px; border-radius: 99px;
+  border: 1px solid currentColor; color: var(--ink-soft); overflow-wrap: anywhere;
+}
+.rv-tag.modality { color: var(--ink); font-weight: 650; }
+.rv-tag.unset { color: var(--warn); font-weight: 650; }
+/* "Experimental reader" means unverified for this kind of campaign, not a bad one,
+   so it wears the warn ink and the word, and the reasons ride on the title. */
+.rv-tag.experimental { color: var(--warn); font-weight: 650; cursor: help; }
+
+/* The sequence column: a monospace cut of the sequence and its Copy. The header is a
+   label, not a sort control, so it gives up the pointer the other headers have. */
+.results-table th.plain { cursor: default; }
+.results-table th.plain:hover { color: var(--ink-soft); }
+.seq-cell { white-space: nowrap; }
+/* Not .seq: that is the Review tab's residue track, and sharing it turned this into a flex box. */
+.seq-cut {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px; padding: 1px 6px; border-radius: 4px;
+  background: var(--surface-3); color: var(--ink);
+}
+.seq-cell .st-copy { margin-left: 8px; }
+
+/* The narrow Results layout, below the width where the table stops fitting
+   (RESULTS_CARDS_BELOW in app.js, 920px): each design a card instead of a
+   table row. The JS draws only one of the two, and owns the query, so there
+   is nothing to hide here and no horizontal scroll to fall back on. The labels are
+   <dt> elements; nothing is generated with ::before. Not .seq, not .seq-cell: those
+   belong to the Review track and the table cell. */
+.results-sort { margin: 0 0 12px; }
+.results-sort select { width: auto; min-width: 0; max-width: 100%; flex: 1 1 12rem; }
+.result-list { list-style: none; margin: 0; padding: 0; }
+.result-card {
+  padding: 10px 10px 11px; border-bottom: 1px solid var(--line); cursor: pointer;
+  font-size: 13.5px; min-width: 0;
+}
+.result-card:first-child { border-top: 1px solid var(--line); }
+.result-card:hover { background: var(--bg); }
+.result-card.is-on { background: var(--bg); box-shadow: inset 2px 0 0 var(--accent); }
+.rc-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
+.rc-id { font-weight: 650; color: var(--ink); overflow-wrap: anywhere; }
+.rc-campaign { color: var(--ink-soft); overflow-wrap: anywhere; min-width: 0; }
+.rc-rank { margin-left: auto; font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+.result-card .sibs { margin-left: 2px; font-size: 12px; font-weight: 450; color: var(--ink-soft); white-space: nowrap; }
+.rc-metrics { display: flex; flex-wrap: wrap; gap: 3px 16px; margin: 6px 0 0; }
+.rc-pair { display: inline-flex; align-items: baseline; gap: 5px; white-space: nowrap; }
+.rc-pair dt, .rc-k { font-size: 12px; font-weight: 620; color: var(--ink-soft); }
+.rc-pair dd { margin: 0; font-variant-numeric: tabular-nums; }
+.rc-seq { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; margin-top: 8px; }
+.rc-seq .seq-cut { overflow-wrap: anywhere; }
+.rc-seq .st-copy { margin-left: auto; }
+
+.sequence {
+  margin-top: 12px; padding: 12px 14px; background: var(--bg);
+  border: 1px solid var(--line); border-radius: 9px;
+  font: 12.5px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
+  word-break: break-all;
+}
+
+/* ------------------------------------------------------------- storage */
+
+/* The Storage tables are read, not operated: nothing in a row does anything. The
+   rules above are written for the Results table, which is sorted and clickable,
+   so the pointer, the header hover and the row highlight come off here, as they
+   do for .cluster-table. A pointer on a row that does nothing is a lie. */
+.inert-table th, .inert-table td { cursor: default; }
+.inert-table th:hover { color: var(--ink-soft); }
+.inert-table tbody tr { cursor: default; }
+.inert-table tbody tr:hover { background: transparent; }
+.inert-table tbody tr:last-child td { border-bottom: 0; }
+.inert-table th.fig, .inert-table td.fig { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.inert-table tfoot td { font-weight: 620; color: var(--ink); border-top: 1px solid var(--line-strong); border-bottom: 0; }
+
+.st-bar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 14px; margin: 4px 0 0; font-size: 13px; }
+.st-bar .dim:empty { display: none; }
+
+.st-disk {
+  display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(120px, 1fr) minmax(0, auto);
+  align-items: center; gap: 6px 18px; padding: 11px 0; border-bottom: 1px solid var(--line);
+}
+.st-disk:last-child { border-bottom: 0; }
+.st-disk .mem { margin: 0; }
+.st-free { font-size: 13px; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.st-free b { color: var(--ink); font-weight: 650; }
+.st-bad { color: var(--bad); font-size: 13px; }
+.st-roots { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.st-roots code, .st-path code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12.5px; padding: 1px 6px; border-radius: 4px;
+  background: var(--surface-3); color: var(--ink);
+  word-break: break-all; user-select: all;
+}
+.st-roots code { align-self: flex-start; }
+
+.st-sub {
+  margin: 18px 0 8px; font-size: 11.5px; font-weight: 650; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--ink-soft);
+}
+.st-sub:first-of-type { margin-top: 4px; }
+.st-item {
+  padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--bg); margin-bottom: 8px;
+}
+.st-item-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+.st-item-head b { font-weight: 620; overflow-wrap: anywhere; }
+.st-item-head .st-size { margin-left: auto; font-weight: 620; font-variant-numeric: tabular-nums; }
+/* A word in a ring, not a colour alone: "Reclaimable" and "Not reclaimable" differ
+   in their text, and the ring colour is the second signal. */
+.st-tag { font-size: 12px; font-weight: 650; padding: 1px 9px; border-radius: 99px; border: 1px solid currentColor; }
+.st-tag.yes { color: var(--good); }
+.st-tag.no { color: var(--ink-soft); }
+.st-item p { margin: 6px 0 0; font-size: 13px; color: var(--ink-soft); }
+.st-item p b { color: var(--ink); font-weight: 620; }
+.st-item p.st-facts { font-size: 12.5px; }
+.st-path { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; min-width: 0; }
+.st-path code { min-width: 0; }
+.st-copy { padding: 3px 10px; font-size: 12.5px; }
+.job .st-path { flex-basis: 100%; margin-top: 0; }
+
+/* Per-folder sizes. A row that is being measured again is marked on the row itself,
+   so a reader can see which one is running without the whole page changing state. */
+.st-folders th.act, .st-folders td.act { text-align: right; white-space: nowrap; }
+.st-folders td b { font-weight: 620; overflow-wrap: anywhere; }
+.st-folders td:nth-child(2), .st-folders td:nth-child(4) { white-space: nowrap; }
+.st-folders tr.is-measuring td:first-child { box-shadow: inset 2px 0 0 var(--accent); }
+@media (max-width: 760px) {
+  .st-disk { grid-template-columns: minmax(0, 1fr); }
+  .results-pick select { min-width: 0; width: 100%; }
+  .results-pick label { flex: 1 1 100%; }
+  .results-pick label > span:first-child { flex: 0 0 4.5rem; }
+}
+
+/* ------------------------------------------------------------- cluster */
+
+/* The cluster's availability, on the submit step. Set apart from the fields around it
+   because it is not a field: nothing here is a choice, it is the state of a
+   machine somewhere else that decides whether the campaign starts or waits. */
+.cluster {
+  margin: 16px 0 0; padding: 13px 15px 11px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.cluster-head { display: flex; align-items: center; gap: 10px; margin-bottom: 7px; }
+.cluster-head h3 { margin: 0; font-size: 14px; font-weight: 650; letter-spacing: -.01em; }
+.cluster-head .dim { font-size: 12.5px; font-weight: 500; }
+.cluster-head .dim:empty { display: none; }
+.cluster-refresh { margin-left: auto; flex: 0 0 auto; }
+.cluster-lead { margin: 0 0 10px; font-size: 13.5px; color: var(--ink); }
+.cluster-lead:empty { display: none; }
+.cluster #cluster-note:not(.hidden) { margin-bottom: 10px; }
+
+/* The surrounding table rules are written for the results table, which is
+   sorted and clickable. Nothing here is either, so the affordances come off:
+   a pointer and a hover highlight on a row that does nothing is a lie. */
+.cluster-table { background: var(--panel); border-radius: var(--radius-sm); overflow: hidden; }
+.cluster-table th, .cluster-table td { cursor: default; }
+.cluster-table th:hover { color: var(--ink-soft); }
+.cluster-table tbody tr { cursor: default; }
+.cluster-table tbody tr:hover { background: transparent; }
+.cluster-table tbody tr:last-child td { border-bottom: 0; }
+.cluster-table th:not(:first-child), .cluster-table td:not(:first-child) { white-space: nowrap; }
+.cluster-table .model { display: flex; flex-direction: column; gap: 1px; }
+.cluster-table .model-name { font-weight: 600; color: var(--ink); }
+.cluster-table .model-mem { font-size: 12px; color: var(--ink-soft); }
+/* A model that cannot hold the campaign is set back rather than hidden — knowing
+   the cluster has A10s and that they are too small is worth more than their
+   absence. The row says "too small" in words; the weight is the second signal,
+   never the only one, and it is a colour change rather than an opacity so the
+   text keeps its contrast. */
+.cluster-table tr.is-small .model-name,
+.cluster-table tr.is-small .free { font-weight: 500; color: var(--ink-soft); }
+/* The count that answers the question, set apart from the two that qualify it. */
+.cluster-table .free { font-weight: 650; color: var(--ink); }
+.cluster-table .free.is-zero { font-weight: 500; color: var(--ink-soft); }
+.cluster-table .evict, .cluster-table .total { color: var(--ink-soft); }
+.cluster-pick { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; }
+.cluster-pick label { flex: 1 1 200px; min-width: 0; }
+.cluster-pick select { width: 100%; }
+.cluster-pick.hidden { display: none; }
+.cluster #cluster-pick-note:not(.hidden) { margin-top: 10px; }
+.cluster #cluster-help { margin: 9px 0 0; }
+.cluster code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: .92em; padding: 1px 4px; border-radius: 4px;
+  background: var(--surface-3); color: var(--ink);
+}
+
+/* Names the table for a screen reader without repeating the heading on screen. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* Narrow screens, and these must come after the rules above: a media query adds
+   no specificity, so at equal weight it is source order that decides. Placed
+   before, the nowrap above silently won and the headings never wrapped.
+   The step's 24px inset costs a third of a 375px viewport once a table is
+   nested two levels in, so it comes down; the context column goes; headings
+   wrap while model names do not, since a name is an identifier and a heading is
+   prose. The two counts that decide anything stay. */
+@media (max-width: 560px) {
+  .step { padding: 16px 14px; }
+  .cluster { padding: 12px 12px 10px; }
+  .cluster-table th:nth-child(4), .cluster-table td:nth-child(4) { display: none; }
+  .cluster-table th:not(:first-child), .cluster-table td:not(:first-child) { white-space: normal; }
+  /* The name is an identifier and stays on one line; the memory note below it
+     is prose and wraps, or it drags the column wide enough to scroll again. */
+  .cluster-table .model-name { white-space: nowrap; }
+  .cluster-table .model-mem { white-space: normal; }
+  .cluster-table th, .cluster-table td { padding: 7px 8px; }
+  .cluster-head { flex-wrap: wrap; row-gap: 4px; }
+  .cluster-head h3 { white-space: nowrap; }
+}
+
+/* ---------------------------------------------------------------- misc */
+
+.note {
+  font-size: 13.5px; padding: 9px 13px; border-radius: 8px;
+  background: var(--bg); border: 1px solid var(--line);
+}
+.note.bad { color: var(--bad); border-color: currentColor; }
+.note.good { color: var(--good); border-color: currentColor; }
+.hidden { display: none !important; }
+.empty { color: var(--ink-soft); font-size: 13.5px; padding: 18px 0; text-align: center; }
+
+.toast {
+  position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+  background: var(--ink); color: var(--bg);
+  padding: 11px 20px; border-radius: 9px; z-index: 50;
+  box-shadow: 0 8px 24px rgba(0,0,0,.2); font-size: 14px; max-width: 90vw;
+}
+.toast.bad { background: var(--bad-fill); color: #fff; }
+
+/* notifications block */
+.notify-row { align-items: flex-start; }
+.notify-row .grow { flex: 1; }
+.notify-row .ghost { margin-top: 26px; }
+#notify-how a { color: var(--accent); }
+
+/* ---------------------------------------------------------------- sequence track */
+
+.seq-wrap { border-top: 1px solid var(--line); background: var(--panel); }
+.seq-head {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 8px 12px 4px; font-size: 12.5px; color: var(--ink-soft);
+}
+.seq-title { font-weight: 600; color: var(--ink); }
+.seq-legend { display: flex; align-items: center; gap: 7px; }
+.seq-hint { margin-left: auto; }
+.sw {
+  display: inline-block; width: 10px; height: 10px; border-radius: 3px;
+  margin-right: 3px; vertical-align: -1px;
+}
+/* The key has to carry the same two channels the cells do, or it collapses in
+   greyscale exactly where a reader turns to it to recover the mapping. */
+.sw.hot { background: var(--hot); }
+.sw.cold { background: transparent; box-shadow: inset 0 0 0 2px var(--cold); }
+/* A thin outline, matching the 1px border its cells carry, so the key is not
+   two identical rings once colour is gone. */
+.sw.sug { background: transparent; box-shadow: inset 0 0 0 1px var(--accent); }
+.sw.bur { background: var(--line); }
+
+.seq {
+  display: flex; flex-wrap: wrap; gap: 1px;
+  padding: 6px 12px 12px; max-height: 190px; overflow-y: auto;
+  user-select: none; cursor: pointer;
+}
+.seq .blk { display: flex; flex-direction: column; margin-right: 9px; }
+.seq .blk-num {
+  font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--ink-soft); padding-left: 1px;
+}
+.seq .blk-row { display: flex; gap: 1px; }
+.res {
+  width: 15px; height: 19px; display: grid; place-items: center;
+  font: 11.5px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  border-radius: 3px; background: var(--bg); color: var(--ink);
+  border: 1px solid transparent;
+}
+.res.buried { color: var(--ink-soft); background: transparent; }
+.res.suggested { border-color: var(--accent); }
+/* Bind here is filled, keep clear is outlined. The two hues are already far
+   apart for colour-vision deficiency (worst case dE 74.8 under protanopia) but
+   only 3.8 L* apart, so colour alone collapses in greyscale -- a printed figure
+   or a mono screenshot -- and the legend collapses with it, since its swatches
+   carried the same single channel. Filled against outlined survives both, and
+   reads the right way round: the site to avoid is the hollow one.
+   A residue is never both marked and suggested (app.js applies `suggested`
+   only when `!marked`), so the ring cannot be confused with that border. */
+.res.hot { background: var(--hot); color: var(--hot-ink); border-color: var(--hot); }
+.res.cold {
+  background: transparent; color: var(--ink);
+  border-color: var(--cold); box-shadow: inset 0 0 0 2px var(--cold);
+}
+.res:hover { outline: 1px solid var(--ink-soft); }
+
+/* A viewer toggle, styled like its sibling .mode so the two groups in the
+   toolbar read as the same kind of control. */
+.look {
+  border: 1px solid var(--line); background: var(--panel); color: var(--ink-soft);
+  padding: 6px 11px; border-radius: 7px; cursor: pointer;
+  font-size: 13.5px; font-weight: 550;
+}
+.look:hover { color: var(--ink); border-color: var(--line-strong); }
+.look.is-on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+
+.notes-list { display: flex; flex-direction: column; gap: 7px; margin-top: 12px; }
+.notes-list:empty { display: none; }
+.note.warn { color: var(--warn); border-color: currentColor; }
+.note.info { color: var(--ink-soft); }
+#trim-warn { margin-top: 12px; color: var(--warn); border-color: currentColor; }
+
+
+/* ---------------------------------------------------------------- review */
+
+.state-stale { color: var(--warn); border-color: currentColor; }
+.state-none  { color: var(--ink-soft); border-color: var(--line); }
+.rv-row .acts { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-left: auto; align-items: center; max-width: 100%; }
+.rv-row .meta { flex-basis: 100%; order: 3; }
+.job .line { flex-basis: 100%; order: 4; margin: -6px 0 0 0; font-size: 13px; color: var(--ink-soft); }
+.job .line.warn { color: var(--warn); }
+.job .line.bad { color: var(--bad); }
+.counts span + span::before { content: " \00b7  "; white-space: pre; }
+.rv-row { row-gap: 6px; }
+/* A label is a name someone typed and can be any length; it wraps rather than push the row wider. */
+.rv-row b { min-width: 0; overflow-wrap: anywhere; }
+/* A project's campaigns, under the facts. Rows are the review list's own; this only spaces them. */
+.rv-members { margin: 14px 0 6px; }
+.rv-members:empty { display: none; }
+.rv-members .sub-h { margin: 0 0 8px; }
+/* The note about decisions, directly above the button that builds. */
+#rv-carry:not(.hidden) { margin: 20px 0 -8px; }
+
+/* Runs linked in from elsewhere. The path is the one thing about such a run that
+   the campaign list above cannot show, so it gets the room. */
+#im-list { margin-top: 18px; }
+#im-list:empty { display: none; }
+#im-list .sub-h { margin: 0 0 8px; }
+.im-row {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 7px 0; border-top: 1px solid var(--line);
+}
+.im-row .dim { flex: 1; min-width: 180px; word-break: break-all; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.im-row .warn { color: var(--warn); }
+.im-row button { margin-left: auto; }
+a.go, a.ghost { text-decoration: none; display: inline-block; }
+a.ghost { color: var(--ink-soft); }
+a.ghost:hover { color: var(--ink); }
+
+.facts {
+  display: grid; grid-template-columns: max-content 1fr; gap: 6px 18px;
+  margin: 14px 0 6px; padding: 12px 14px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 9px;
+  font-size: 13.5px;
+}
+.facts dt { color: var(--ink-soft); font-weight: 550; }
+.facts dd { margin: 0; min-width: 0; word-break: break-word; }
+.facts .mono { font: 12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.facts .path { color: var(--ink-soft); font-size: 12.5px; display: block; }
+.facts .warn { color: var(--warn); }
+.facts .bad { color: var(--bad); }
+@media (max-width: 560px) { .facts { grid-template-columns: 1fr; gap: 0; } .facts dd { margin-bottom: 8px; } }
+
+.sub-h { margin: 22px 0 2px; font-size: 14.5px; font-weight: 650; }
+
+.refopts { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.refopt {
+  display: flex; align-items: baseline; gap: 4px 12px; flex-wrap: wrap; text-align: left;
+  padding: 10px 14px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--bg); color: var(--ink); cursor: pointer; font: inherit;
+}
+.refopt:hover { border-color: var(--accent); }
+.refopt.is-on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--panel); }
+.refopt b { font-weight: 600; }
+.refopt .why { color: var(--ink-soft); font-size: 12.5px; }
+.refopt .why.warn { color: var(--warn); flex-basis: 100%; }
+
+.addrow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.addlabel { color: var(--ink-soft); font-size: 13px; }
+.addgroup { display: inline-flex; gap: 6px; align-items: center; }
+input.short { width: 92px; }
+input.mid { width: 170px; }
+.addhelp { margin: 8px 0 0; }
+.topgap { margin-top: 16px; }
+
+.build-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+.build-head .spacer { margin-left: auto; }
+.spin {
+  width: 15px; height: 15px; border-radius: 50%;
+  border: 2px solid var(--line); border-top-color: var(--accent);
+  animation: spin 0.9s linear infinite;
+}
+.spin.off { display: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
+.track { height: 6px; border-radius: 99px; background: var(--line); margin: 12px 0 2px; overflow: hidden; }
+.track i { display: block; height: 100%; width: 0; background: var(--accent); border-radius: 99px; transition: width .6s ease; }
+
+.open-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 14px 0 8px; }
+.inside { margin: 0 0 10px; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 13.5px; }
+.inside li { padding-left: 14px; position: relative; }
+.inside li::before { content: ""; position: absolute; left: 0; top: .7em; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.inside b { font-weight: 600; }
+.done-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+#rv-failed .note { margin: 14px 0 6px; white-space: pre-wrap; }
+
+/* the strip on the Results tab that points here */
+.bridge {
+  display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap;
+  margin-top: 14px; padding: 11px 14px; border-radius: 9px;
+  background: var(--bg); border: 1px solid var(--line); font-size: 13.5px;
+}
+.bridge .text { flex: 1 1 320px; color: var(--ink-soft); }
+.bridge .text b { color: var(--ink); font-weight: 600; }
+.open-row .help { margin: 0; }
+
+/* how far an AlphaFold reference can be trusted outside the construct */
+.conf-wrap { margin-top: 12px; }
+.conf {
+  padding: 11px 14px; border-radius: 9px; font-size: 13.5px;
+  background: var(--bg); border: 1px solid var(--line);
+}
+.conf.warn { border-color: var(--warn); }
+.conf.good { border-color: var(--good); }
+.conf.warn > .head { color: var(--warn); }
+.conf.good > .head { color: var(--good); }
+.conf.info > .head { color: var(--ink-soft); }
+.conf > .head { font-weight: 650; display: block; }
+.conf p { margin: 6px 0 0; }
+.conf p.advice { color: var(--ink-soft); }
+.conf button.small { margin-top: 8px; padding: 4px 10px; font-size: 12.5px; }
+#rv-done .conf { margin: 12px 0 0; }
+.conf-more { margin-top: 10px; }
+.conf-more summary { cursor: pointer; font-size: 13px; color: var(--ink-soft); }
+.conf-more summary:hover { color: var(--ink); }
+.conf-table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 12.5px; }
+.conf-table th { text-align: left; font-weight: 600; color: var(--ink-soft); padding: 3px 12px 3px 0; }
+.conf-table td { padding: 3px 12px 3px 0; border-top: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.conf-table tr.c-independent td:nth-child(4) { color: var(--bad); }
+.conf-table tr.c-uncertain td:nth-child(4) { color: var(--warn); }
+.conf-table tr.c-confident td:nth-child(4) { color: var(--good); }
+.conf-more .help { margin: 8px 0 0; font-size: 12.5px; }
+.conf-scroll { overflow-x: auto; }
+.conf-table td, .conf-table th { white-space: nowrap; }
+
+/* the three situations: a reference you can trust, one you should not lean on, none at all.
+   The first choice is the card; the kind of reference then speaks in the panel below it. */
+.modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 14px 0; }
+@media (max-width: 640px) { .modes { grid-template-columns: 1fr; } }
+.mode {
+  display: flex; gap: 10px; align-items: flex-start; cursor: pointer;
+  padding: 10px 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg);
+}
+.mode:hover { border-color: var(--accent); }
+.mode:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: var(--panel); }
+.mode input { width: auto; margin-top: 3px; }
+.mode { font-weight: 400; color: var(--ink); }
+.mode b { font-weight: 600; font-size: 13.5px; display: block; }
+.mode span { display: block; font-weight: 400; color: var(--ink-soft); font-size: 12.5px; margin-top: 2px; }
+.refopt .kind { font-size: 11.5px; color: var(--ink-soft); border: 1px solid var(--line); border-radius: 99px; padding: 0 7px; }
+.conf.info > .head { color: var(--ink); }
+.conf p b.lead { font-weight: 600; font-size: inherit; }
+.conf p.apart { border-top: 1px dashed var(--line); padding-top: 8px; margin-top: 10px; }
+
+
+/* ---------------------------------------------------------------- the chains of a reference */
+.chains { margin-top: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg); font-size: 13.5px; }
+.chains-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.chains-head b { font-weight: 650; }
+.chains-head .small { margin-left: auto; padding: 3px 10px; font-size: 12.5px; }
+.chains p { margin: 6px 0 0; }
+.chains p.help { font-size: 12.5px; margin: 6px 0 0; }
+.chains-lead b { font-weight: 620; }
+.chains-warn { color: var(--warn); }
+.chain-table { border-collapse: collapse; width: 100%; margin-top: 8px; font-size: 13px; }
+.chain-table th { text-align: left; font-weight: 600; color: var(--ink-soft); padding: 3px 12px 3px 0; font-size: 12.5px; cursor: default; }
+.chain-table td { padding: 6px 12px 6px 0; border-top: 1px solid var(--line); vertical-align: top; }
+.chain-table td:nth-child(1) { width: 1%; }
+.chain-table td:nth-child(2) { width: 1%; }
+.chain-table td:nth-child(4) { white-space: nowrap; }
+.chain-table tbody tr:hover { background: transparent; }
+.chain-table .why { display: block; color: var(--ink-soft); font-size: 12.5px; margin-top: 2px; }
+.chain-table .hint { display: block; color: var(--warn); font-size: 12.5px; margin-top: 2px; }
+.chain-table .role { font-size: 11.5px; border: 1px solid var(--line); border-radius: 99px; padding: 0 7px; margin-right: 4px; color: var(--ink-soft); white-space: nowrap; }
+.chain-table .role-target { color: var(--accent); border-color: var(--accent); }
+.chain-table .role-subunit { color: var(--good); border-color: var(--good); }
+.chain-table .role-other_molecule, .chain-table .role-outside_assembly { color: var(--warn); border-color: var(--warn); }
+.chain-table .tick { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.chain-table input[type=radio], .chain-table input[type=checkbox] { width: auto; margin: 0; }
+.chains-built { margin-top: 8px; }

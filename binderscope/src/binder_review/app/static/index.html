@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Binderscope</title>
+<link rel="icon" href="/_app/binderscope-mark.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/_app/shared.css">
+<link rel="stylesheet" href="/_app/app.css">
+</head>
+<body>
+<header class="ahdr">
+  <a class="brand" href="/"><img class="mark" src="/_app/binderscope-mark.svg" alt=""><span>Binderscope</span></a>
+  <span class="grow"></span>
+  <span class="ver" id="ver"></span>
+  <button class="btn ghost sm" id="quit" type="button" title="Stop the Binderscope app (your projects stay where they are)">Quit</button>
+</header>
+<main class="wrap" id="main">
+  <div id="welcome" hidden class="empty">
+    <h1>Decide which designs to take into the lab.</h1>
+    <p class="lead">Binderscope reads your BindCraft runs, groups the designs by backbone family, checks each one on the full-length target and gives you a board to keep, maybe or reject. It runs on this computer only, and it never changes your files.</p>
+    <ol class="steps">
+      <li><b>Choose your runs</b>Point it at the BindCraft run folders. They stay where they are.</li>
+      <li><b>Add the target</b>The structure you gave BindCraft and a full-length reference of the target.</li>
+      <li><b>Build and review</b>The analysis takes a minute or two, then the review pages open here.</li>
+    </ol>
+    <a class="btn primary big" href="/new">Start a new project</a>
+  </div>
+  <div id="list" hidden>
+    <div class="row sp" style="margin-bottom:18px">
+      <h1 style="margin:0">Your projects</h1>
+      <a class="btn primary big" href="/new">New project</a>
+    </div>
+    <div class="cards" id="cards"></div>
+  </div>
+  <div id="loading" class="hint">Loading…</div>
+  <div class="foot" id="foot" hidden>
+    <span>Projects are kept in <code id="home"></code></span>
+    <button class="btn ghost sm" id="showhome" type="button">Show in Finder</button>
+  </div>
+</main>
+<dialog id="confirm"><div class="dh"><h3 id="ctitle"></h3></div><div class="db" id="cbody"></div><div class="df"><button class="btn" id="cno" type="button">Cancel</button><button class="btn danger" id="cyes" type="button">Delete</button></div></dialog>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="/_app/app.js"></script>
+<script src="/_app/home.js"></script>
+</body>
+</html>

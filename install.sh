@@ -18,6 +18,12 @@
 #   --params DIR       the AlphaFold 2 parameters folder those jobs bind in    (asked for if not given)
 #   --queue NAME       the SGE queue to submit to (default: the site's own default queue)
 #   --python PATH      a Python 3.12+ for the service, if the checkout has no .venv yet
+# For --sge on a host older than glibc 2.28, where the review package cannot be installed:
+#   the launcher is installed on its own, and reviews run in a Python container on a compute node.
+#   --review-sif PATH  a Python 3.12+ Apptainer image to run reviews in (default: pull python:3.12-slim)
+#   --review-queue N   the SGE queue for review jobs, which need no GPU (default: the site's default)
+#   --review-submit C  the whole command that sends a review to a node, for a site that needs more
+#                      than a queue (e.g. a resource saying "no GPU"); it must stream output like qrsh
 # Everywhere:
 #   --dry-run          say what would be done, and do nothing
 #   -y, --yes          ask nothing: use what was given and the defaults
@@ -29,9 +35,10 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE="" BC="" PY="" SIF="" PARAMS="" QUEUE="" QUEUE_SET=0 RJOBS="" NOSERVICE=0 DRY=0 YES=0
+RSIF="" RQUEUE="" RQUEUE_SET=0 RSUBMIT="" OLD_GLIBC=0
 REST=()
 
-usage() { sed -n '2,27p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,34p' "$0" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 die() { printf '\ninstall: %s\n' "$*" >&2; exit 1; }
 say() { printf '%s\n' "$*"; }
 step() { printf '\n== %s\n' "$*"; }
@@ -49,6 +56,9 @@ while (( $# )); do
     --params) PARAMS="${2:?--params needs a folder}"; shift ;;
     --queue) QUEUE="${2?--queue needs a name}"; QUEUE_SET=1; shift ;;   # empty is allowed: the site default
     --review-jobs) RJOBS="${2:?--review-jobs needs a number}"; shift ;;
+    --review-sif) RSIF="${2:?--review-sif needs a path}"; shift ;;
+    --review-queue) RQUEUE="${2?--review-queue needs a name}"; RQUEUE_SET=1; shift ;;
+    --review-submit) RSUBMIT="${2:?--review-submit needs a command}"; shift ;;
     --no-service) NOSERVICE=1 ;;
     --dry-run) DRY=1 ;;
     -y|--yes) YES=1 ;;
@@ -118,11 +128,16 @@ step "Checking this machine for a ${MODE} install"
 case "$(uname -s)" in Linux) ;; *) die "the full install runs on Linux. On a Mac, choose the review-only install." ;; esac
 GLIBC="$(ldd --version 2>/dev/null | head -1 | grep -o '[0-9]\+\.[0-9]\+$' || true)"
 if [[ -n $GLIBC ]] && ! version_ge "$GLIBC" 2.28; then
-  die "this machine's C library is glibc $GLIBC. The service needs numpy 2.5 and scipy 1.18, whose
-prebuilt packages need glibc 2.28 or newer, so they cannot be installed here at all (pip
-would try to build them and fail). On a cluster this old, run the review-only install on
-your own computer, or ask your site about a newer submit host. See 'On an SGE cluster' in
-the README."
+  # The review package needs numpy 2.5 and scipy 1.18, whose prebuilt packages need glibc
+  # 2.28; here pip could only try to compile them, and fail. The launcher itself is happy
+  # with older releases, so on a cluster it is installed alone and the reviews go to a
+  # container on a compute node, which brings its own glibc.
+  [[ $MODE == sge ]] || die "this machine's C library is glibc $GLIBC, too old for the review package (numpy 2.5 and
+scipy 1.18 need glibc 2.28 or newer) and for BindCraft 2 itself. Run the review-only install
+on a newer machine. On a cluster, ./install.sh --sge installs the launcher on its own."
+  OLD_GLIBC=1
+  say "   glibc $GLIBC is older than 2.28, too old for the review package. The launcher is installed"
+  say "   on its own, and reviews will run in a Python container on a compute node."
 fi
 if [[ $MODE == local ]]; then
   command -v nvidia-smi >/dev/null || say "   note: no nvidia-smi here; campaigns need this machine's NVIDIA GPUs"
@@ -149,9 +164,17 @@ then run this again with --python \"\$(uv python find 3.12)\"."
   [[ -n $SIF && -f $SIF ]] || die "no BindCraft 2 image at '${SIF}'. Give one with --sif. Build or pull a CUDA 12 image: many clusters' GPU drivers are too old for CUDA 13."
   [[ -n $PARAMS && -d $PARAMS ]] || die "no AlphaFold parameters folder at '${PARAMS}'. Give it with --params."
   ls "$PARAMS"/params_model_*.npz >/dev/null 2>&1 || say "   note: no params_model_*.npz in $PARAMS; BindCraft will not find its weights there"
+  if (( OLD_GLIBC )); then
+    for c in qrsh apptainer; do command -v "$c" >/dev/null || die "there is no $c here, and launcher-only mode needs it on this host: reviews are sent
+to compute nodes with qrsh, and the review runtime is set up and run with apptainer."; done
+    [[ -n $RSUBMIT ]] || (( RQUEUE_SET )) || ask RQUEUE "SGE queue for review jobs (CPU only)? Leave empty for the site's default." ""
+    RSIF="${RSIF/#\~/$HOME}"
+    [[ -z $RSIF || -f $RSIF ]] || die "no review image at '$RSIF'. Give a Python 3.12+ Apptainer image, or leave --review-sif out to pull one."
+    [[ -z $RJOBS ]] && RJOBS=4        # a review runs on a compute node here, with the slots it asks for
+  fi
   [[ -z $RJOBS ]] && RJOBS=2
 fi
-for v in "$SIF" "$PARAMS" "$QUEUE"; do [[ $v != *[\"\$\`\\]* ]] || die "a value may not contain \" \$ \` or \\: $v"; done
+for v in "$SIF" "$PARAMS" "$QUEUE" "$RSIF" "$RQUEUE" "$RSUBMIT"; do [[ $v != *[\"\$\`\\]* ]] || die "a value may not contain \" \$ \` or \\: $v"; done
 [[ -z $RJOBS || $RJOBS =~ ^[1-9][0-9]*$ ]] || die "--review-jobs takes a whole number, not '$RJOBS'"
 say "   BindCraft 2 checkout: $BC"
 
@@ -170,6 +193,12 @@ if [[ ! -x $VENV/bin/python ]]; then run "$PY" -m venv "$VENV"; fi
 # --prefer-binary: take a prebuilt package whenever there is one, rather than a newer
 # release that would have to be compiled here.
 run "$VENV/bin/python" -m pip install --quiet --upgrade pip
+if (( OLD_GLIBC )); then
+  run "$VENV/bin/python" -m pip install --quiet --prefer-binary -r "$BC/bc2serve/requirements-launcher.txt"
+  run "$VENV/bin/python" -c "import fastapi, uvicorn, numpy, biotite, scipy" \
+    || die "the packages did not import; see the pip output above"
+  (( DRY )) || say "   ok: $("$VENV/bin/python" -c 'import sys, numpy; print("Python", sys.version.split()[0], "· numpy", numpy.__version__, "· the launcher alone")')"
+else
 run "$VENV/bin/python" -m pip install --quiet --prefer-binary -r "$BC/bc2serve/requirements.txt"
 # Editable, and it must be: the review finds its pages (viewer/), schemas (docs/schema) and
 # validator (scripts/) beside its source. A plain install copies the package alone, and the
@@ -178,6 +207,35 @@ run "$VENV/bin/python" -m pip install --quiet --prefer-binary -e "$BC/binderscop
 run "$VENV/bin/python" -c "import fastapi, uvicorn, numpy, biotite, binder_review" \
   || die "the packages did not import; see the pip output above"
 (( DRY )) || say "   ok: $("$VENV/bin/python" -c 'import sys, numpy, binder_review; print("Python", sys.version.split()[0], "· numpy", numpy.__version__, "· binder_review", binder_review.__version__)')"
+fi
+
+# ---- 2b. launcher-only: the review package in a container, for compute nodes
+REVIEW_RUNTIME="" REVIEW_SUBMIT=""
+if (( OLD_GLIBC )); then
+  step "Setting up the review runtime: the review package in a Python container"
+  RDIR="$BC/.binderscope" RVENV="$BC/.binderscope/review-venv"
+  if [[ -z $RSIF ]]; then
+    RSIF="$RDIR/python312.sif"
+    if [[ ! -f $RSIF ]]; then run mkdir -p "$RDIR"; run apptainer pull "$RSIF" docker://python:3.12-slim; fi
+  fi
+  # The checkout is bound in by name, so the venv, the source and the run folders are where
+  # the host says they are even when the checkout is not under the home directory.
+  APX=(apptainer exec -e --bind "$BC" "$RSIF")
+  # -L, not -e: the venv's python links to the container's own interpreter, a path that
+  # does not exist on the host, so from out here the link always looks broken.
+  [[ -L $RVENV/bin/python ]] || run "${APX[@]}" python3 -m venv "$RVENV"
+  run "${APX[@]}" "$RVENV/bin/python" -m pip install --quiet --upgrade pip
+  run "${APX[@]}" "$RVENV/bin/python" -m pip install --quiet --prefer-binary -e "$BC/binderscope"
+  run "${APX[@]}" "$RVENV/bin/python" -m binder_review --version \
+    || die "the review package does not run in $RSIF; see the pip output above"
+  # Quoted for shlex, which is how the service splits it: a path with a space stays one word.
+  REVIEW_RUNTIME="apptainer exec -e --bind '$BC' '$RSIF' '$RVENV/bin/python' -m binder_review"
+  # qrsh, not qsub: the build's output has to stream back as it runs, because that is
+  # what drives the progress stages. -noshell keeps a login shell such as tcsh from
+  # re-reading the arguments; -now no lets it wait for a slot instead of failing at once.
+  REVIEW_SUBMIT="${RSUBMIT:-qrsh -noshell -now no${RQUEUE:+ -q $RQUEUE} -pe smp $RJOBS}"
+  say "   review jobs: $REVIEW_SUBMIT"
+fi
 
 # ---- 3. settings
 step "Writing settings to $BC/bc2serve.env"
@@ -204,6 +262,10 @@ if [[ $MODE == sge ]]; then
   set_env BC2SERVE_SGE_QUEUE "$QUEUE"
 fi
 [[ -n $RJOBS ]] && set_env BC2SERVE_REVIEW_JOBS "$RJOBS"
+if (( OLD_GLIBC )); then
+  set_env BC2SERVE_REVIEW_RUNTIME "$REVIEW_RUNTIME"
+  set_env BC2SERVE_REVIEW_SUBMIT "$REVIEW_SUBMIT"
+fi
 
 # ---- 4. start it
 if (( NOSERVICE )); then

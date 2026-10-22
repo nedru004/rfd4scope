@@ -1,0 +1,26 @@
+# Dependencies of bc2serve on its own, without the review package, for a host
+# too old to install that: a cluster login node whose glibc is older than 2.28.
+#
+# The review package (binderscope/) needs numpy 2.5 and scipy 1.18, which have
+# no prebuilt packages for glibc 2.17, so on such a host it runs in a container
+# instead (BC2SERVE_REVIEW_RUNTIME; see "On an SGE cluster" in the README) and is
+# not installed here. Everything below has prebuilt packages for glibc 2.17.
+#
+# The floors are what resolved, and ran, on a glibc 2.17 login node with Python
+# 3.12. ./install.sh --sge uses this file by itself when it finds an old glibc:
+#
+#   <repo>/.venv/bin/pip install --prefer-binary -r bc2serve/requirements-launcher.txt
+#
+# On a newer host use requirements.txt, which also asks for the review package's
+# floors, so the two install into one environment.
+
+fastapi>=0.143.2
+uvicorn>=0.54.0
+python-multipart>=0.0.32
+
+# Imported directly (structure.py and review.py).
+numpy>=2.2.6
+biotite>=1.4.0
+
+# Used by the reference check, which runs in this process before a review.
+scipy>=1.16.3

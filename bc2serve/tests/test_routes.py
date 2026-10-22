@@ -1561,3 +1561,60 @@ class ClusterSettingsTests(unittest.TestCase):
         self.assertIsNone(job_id)
         self.assertIn("BC2SERVE_SGE_SIF", why)
         submit.assert_not_called()
+
+
+class ReviewRuntimeTests(unittest.TestCase):
+    """Where a review runs: this checkout by default, a container on a compute node when told."""
+
+    def setUp(self):
+        holder = tempfile.TemporaryDirectory(prefix="bc2serve-runtime-")
+        self.addCleanup(holder.cleanup)
+        self.tmp = Path(os.path.realpath(holder.name))
+        patcher = mock.patch.dict(os.environ, {})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        for key in ("BC2SERVE_REVIEW_RUNTIME", "BC2SERVE_REVIEW_SUBMIT"):
+            os.environ.pop(key, None)
+
+    def fake_runtime(self, body: str) -> str:
+        script = self.tmp / "runtime.sh"
+        script.write_text("#!/bin/sh\n" + body + "\n")
+        script.chmod(0o755)
+        return str(script)
+
+    def test_by_default_a_review_is_this_checkouts_own_command(self):
+        self.assertEqual(review_module.review_runtime(REPO), [str(REPO / ".venv" / "bin" / "binder-review")])
+        self.assertEqual(review_module.review_submit(), [])
+
+    def test_a_build_goes_through_the_submit_command_and_the_runtime(self):
+        os.environ["BC2SERVE_REVIEW_RUNTIME"] = "apptainer exec -e '/a path/py.sif' /v/bin/python -m binder_review"
+        os.environ["BC2SERVE_REVIEW_SUBMIT"] = "qrsh -noshell -now no -pe smp 4"
+        words = review_module.review_submit() + review_module.review_runtime(REPO)
+        self.assertEqual(words, ["qrsh", "-noshell", "-now", "no", "-pe", "smp", "4", "apptainer", "exec", "-e",
+                                 "/a path/py.sif", "/v/bin/python", "-m", "binder_review"])
+
+    def test_without_the_package_here_the_chain_table_comes_from_the_runtime(self):
+        answer = {"target": {"chain": "A"}, "chains": [{"chain": "A"}], "partners": {"chains": [], "mode": "auto"}}
+        log = self.tmp / "args"
+        os.environ["BC2SERVE_REVIEW_RUNTIME"] = self.fake_runtime(
+            f'printf "%s\\n" "$@" > {log}; echo \'{json.dumps(answer)}\'')
+        with mock.patch.dict(sys.modules, {"binder_review": None}):
+            got = review_module._composition(str(self.tmp / "ref.cif"), 1.0, str(self.tmp / "c.pdb"), 2.0, "", "", "auto", "")
+        self.assertEqual(got, answer)
+        args = log.read_text().split("\n")
+        self.assertEqual(args[:2], ["chains", str(self.tmp / "ref.cif")])
+        self.assertIn("--json", args)
+        self.assertEqual(args[args.index("--target-pdb") + 1], str(self.tmp / "c.pdb"))
+
+    def test_a_runtime_that_cannot_answer_says_why_on_the_page(self):
+        os.environ["BC2SERVE_REVIEW_RUNTIME"] = self.fake_runtime('echo "apptainer: image not found" >&2; exit 255')
+        with mock.patch.dict(sys.modules, {"binder_review": None}):
+            got = review_module._composition(str(self.tmp / "r2.cif"), 1.0, str(self.tmp / "c.pdb"), 2.0, "", "", "auto", "")
+        self.assertEqual(got["problem"], "apptainer: image not found")
+        self.assertEqual(got["target"], {"chain": None})
+
+    def test_the_fingerprint_reads_the_source_beside_the_checkout_when_the_package_is_not_here(self):
+        with mock.patch("importlib.util.find_spec", return_value=None):
+            files = review_module._package_files()
+        self.assertTrue(files)
+        self.assertTrue(all("binder_review" in f.parts for f in files))

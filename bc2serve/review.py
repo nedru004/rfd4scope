@@ -29,7 +29,9 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import shutil
+import subprocess
 import threading
 import time
 import urllib.error
@@ -293,8 +295,13 @@ def _composition(path: str, mtime: float, construct: str, construct_mtime: float
 
     Cached on the file's modification time, as the other readers here are.
     """
-    from binder_review import target_frame as TF
-    from binder_review import structure as BS
+    try:
+        from binder_review import target_frame as TF
+        from binder_review import structure as BS
+    except ImportError:
+        # A launcher-only install (an old cluster login node) has no review package in
+        # this process: ask the review runtime, which prints this very table.
+        return _composition_by_command(path, construct, chain, partners, assembly)
 
     try:
         atoms = TF._read_construct(construct)        # the construct as the build reads it: its sequence, and its coordinates for a tie
@@ -305,6 +312,57 @@ def _composition(path: str, mtime: float, construct: str, construct_mtime: float
                                      partner_chains=partners, assembly_id=assembly or None, construct_atoms=atoms)
     except (TF.FrameError, BS.StructureError) as problem:
         return {"problem": str(problem), "chains": [], "target": {"chain": None}, "partners": {"chains": [], "mode": "auto"}}
+
+
+# ------------------------------------------------------------ where reviews run
+#
+# By default a review is the review package's own command in this checkout's .venv,
+# run on this machine. Two settings move it, for a cluster whose login node is too
+# old to install the review package at all (it needs glibc 2.28 for numpy 2.5):
+#
+#   BC2SERVE_REVIEW_RUNTIME  how to run the review package, as a whole command, e.g.
+#                            apptainer exec -e py312.sif /path/review-venv/bin/python -m binder_review
+#   BC2SERVE_REVIEW_SUBMIT   what to put in front of a build to send it to a compute node, e.g.
+#                            qrsh -noshell -now no -pe smp 4
+#
+# The build needs both; the chain table before a build (_composition) needs only the
+# runtime, because it reads one structure and must answer while the page waits.
+# The submit command must stream the build's output back as it runs, because that is
+# what drives the progress stages: qrsh does, qsub does not. -noshell keeps a login
+# shell such as tcsh from re-reading the arguments, and every path the build is given
+# is absolute, because qrsh does not carry the working directory.
+
+def review_runtime(repo: Path | str | None = None) -> list[str]:
+    """The command that runs the review package: BC2SERVE_REVIEW_RUNTIME, else the checkout's binder-review."""
+    words = shlex.split(os.environ.get("BC2SERVE_REVIEW_RUNTIME", ""))
+    if words:
+        return words
+    base = Path(repo) if repo else Path(__file__).resolve().parent.parent
+    return [str(base / ".venv" / "bin" / "binder-review")]
+
+
+def review_submit() -> list[str]:
+    """What goes in front of a build to run it elsewhere: BC2SERVE_REVIEW_SUBMIT, else nothing."""
+    return shlex.split(os.environ.get("BC2SERVE_REVIEW_SUBMIT", ""))
+
+
+def _composition_by_command(path: str, construct: str, chain: str, partners: str, assembly: str) -> dict:
+    """_composition, answered by `binder-review chains --json` through the review runtime."""
+    command = review_runtime() + ["chains", path, "--target-pdb", construct,
+                                  "--reference-chain", chain or "auto", "--partner-chains", partners or "auto", "--json"]
+    if assembly:
+        command += ["--assembly", assembly]
+    try:
+        done = subprocess.run(command, capture_output=True, text=True, timeout=180)
+    except (OSError, subprocess.TimeoutExpired) as problem:
+        why = f"The review runtime could not be run to read the reference ({problem})."
+        return {"problem": why, "chains": [], "target": {"chain": None}, "partners": {"chains": [], "mode": "auto"}}
+    try:
+        return json.loads(done.stdout)            # printed even when it found a problem, which it then names
+    except ValueError:
+        said = (done.stderr or done.stdout).strip().splitlines()
+        why = said[-1] if said else f"the review runtime exited {done.returncode} without an answer"
+        return {"problem": why, "chains": [], "target": {"chain": None}, "partners": {"chains": [], "mode": "auto"}}
 
 
 def uniprot_in_name(name: str) -> str | None:
@@ -1022,7 +1080,11 @@ def _package_files() -> list[Path]:
     except (ImportError, ValueError):
         root = None
     if root is None:
-        return []
+        # Not importable here (a launcher-only install): the source beside this
+        # checkout is what the review runtime runs, editable, so it is what to fingerprint.
+        root = Path(__file__).resolve().parent.parent / "binderscope" / "src" / "binder_review"
+        if not root.is_dir():
+            return []
     return [p for p in root.rglob("*") if p.suffix in (".py", ".json")
             and "__pycache__" not in p.parts]
 
@@ -1040,8 +1102,10 @@ def _viewer_files() -> list[Path]:
     try:
         from binder_review.viewer_build import viewer_dir
         root = viewer_dir()
-    except Exception:          # not installed, or no viewer to find: the build will say so
-        return []
+    except Exception:          # not installed here: the viewer beside this checkout, if there is one
+        root = Path(__file__).resolve().parent.parent / "binderscope" / "viewer"
+        if not (root / "pages").is_dir():
+            return []
     return [p for p in root.rglob("*")
             if p.is_file() and not any(part.startswith(".") for part in p.parts[len(root.parts):])]
 
@@ -1158,7 +1222,7 @@ def launch_spec(repo: Path, row) -> tuple[list[str], Path] | None:
     members = given.get("members")
     runs = [f"{m['id']}={m['folder']}" for m in members] if members else [str(folder)]
     command = [
-        str(Path(repo) / ".venv" / "bin" / "binder-review"), "import", *runs,
+        *review_submit(), *review_runtime(repo), "import", *runs,
         "--target-pdb", given["construct"],
         # The bundle's own title. For a project that is the label the person
         # typed, not the slug: "@spike-ab12cd" is a key for the filesystem and a

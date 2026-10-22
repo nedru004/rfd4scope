@@ -78,7 +78,7 @@ For `--local`. The cluster install's are under [On an SGE cluster](#on-an-sge-cl
 
 ## The layout contract: this repository is an overlay
 
-**This repository does not run on its own.** It is laid over a BindCraft 2 checkout. The directories `bindcraft/`, `settings/`, `scaffolds/` and `examples/` come from upstream BindCraft 2 and are not in this repository.
+**This repository does not run on its own.** Its service runs from inside a BindCraft 2 checkout, into which three of its parts are copied. The directories `bindcraft/`, `settings/`, `scaffolds/` and `examples/` come from upstream BindCraft 2 and are not in this repository.
 
 The reason is in the code, not in preference:
 
@@ -87,7 +87,9 @@ The reason is in the code, not in preference:
 - The service starts campaigns with `<repo>/.venv/bin/bindcraft` and runs reviews with `<repo>/.venv/bin/binder-review`. Those paths are fixed.
 - The web pages are found relative to the code, and importing the app creates its state and results folders and starts its worker threads.
 
-For these reasons `bc2serve` is deliberately **not** an installable package. A `pyproject.toml` would suggest an independence it does not have. It has a `requirements.txt` instead, and you copy or clone this repository on top of your BindCraft 2 checkout.
+For these reasons `bc2serve` is deliberately **not** an installable package. A `pyproject.toml` would suggest an independence it does not have. It has a `requirements.txt` instead.
+
+**Clone this repository somewhere else, not over the checkout, and run `./install.sh`.** It copies `bc2serve/`, `binderscope/` and `bc2-serve.sh` into the checkout and nothing more. Laying the whole repository over the checkout would overwrite BindCraft 2's own files: both have a `README.md`, a `LICENSE` and an `install.sh` at the top, and BindCraft 2's licence file is one of them.
 
 So the layout you need, once everything is in place, is:
 
@@ -107,7 +109,7 @@ So the layout you need, once everything is in place, is:
 
 `./install.sh --local` does all of this. The steps are here so you can see what it changes, or do it by hand.
 
-Do this on the machine with the GPUs. The commands assume you are in the BindCraft 2 checkout, with this repository's files laid over it, and that BindCraft 2 itself already works.
+Do this on the machine with the GPUs. The commands assume you are in the BindCraft 2 checkout, that BindCraft 2 itself already works, and that `bc2serve/`, `binderscope/` and `bc2-serve.sh` from this repository have been copied into it (`cp -R bc2serve binderscope bc2-serve.sh /path/to/BindCraft2/`). Copy those three, not the whole repository: see the layout contract above.
 
 **1. Install the dependencies into the BindCraft 2 environment.**
 
@@ -230,6 +232,8 @@ The cluster backend is covered by tests against recorded scheduler output, and i
 
 This is the architecture, not a missing feature. The service is a systemd *user* service. Each person who uses the machine runs their own, with their own port, their own queue database, their own results and their own settings, and the operating system keeps them apart. There is no multi-user mode, there are no accounts, and none is planned. If two people want to use Binderscope on one machine, each installs their own instance.
 
+The unit is per account, so one account has one service. `./bc2-serve.sh install` in a second checkout refuses and names the checkout that owns it, and `stop`, `restart` and `uninstall` there leave that service alone. A second checkout can still be run by hand: set `BC2SERVE_PORT` in its `bc2serve.env` to a free port and run `./bc2-serve.sh`.
+
 ---
 
 ## What is in this repository
@@ -248,4 +252,4 @@ The project's other working notes (the architecture notes, the build plan and th
 
 ## About this document
 
-This README was written from a working install on one machine. `./install.sh --local` and `--sge` have been run on a fresh Rocky Linux 9 machine against a stand-in BindCraft checkout and stand-in SGE commands, and a review was built through the result; neither has yet been run from scratch against a real BindCraft 2 GPU install or a real cluster. The review-only install has been run on Rocky Linux 9 with no root. If a step does not work as written, the step is wrong, not you.
+`./install.sh --local` has been run from scratch on a GPU workstation: a fresh BindCraft 2 v1.0.3 checkout, then the installer from a clean clone, then a campaign submitted through the service, which ran and was reviewed. `--sge` has been run on Rocky Linux 9 against stand-in SGE commands, not yet on a real cluster (see [On an SGE cluster](#on-an-sge-cluster)). The review-only install has been run on Rocky Linux 9 with no root, and not yet on a clean Mac. If a step does not work as written, the step is wrong, not you.

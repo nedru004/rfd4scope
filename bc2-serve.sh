@@ -43,7 +43,14 @@ if [[ -f $ENV_FILE ]]; then set -a; source "$ENV_FILE"; set +a; fi
 # decision lost. That rules out "just grab a free port".
 PORT="${BC2SERVE_PORT:-$((8080 + $(id -u) % 900))}"
 
-installed() { [[ -f $UNIT_FILE ]]; }
+# The unit is per user, not per checkout: ~/.config/systemd/user holds one
+# bindcraft-web.service, whichever checkout wrote it. So "installed" has to mean
+# installed from here. Checking only that the file exists let a second checkout's
+# stop, restart or install drive the first one's running service.
+installed() { [[ -f $UNIT_FILE ]] && grep -qxF "WorkingDirectory=$BINDCRAFT_HOME" "$UNIT_FILE"; }
+other_install() { [[ -f $UNIT_FILE ]] && ! installed; }
+other_home() { sed -n 's/^WorkingDirectory=//p' "$UNIT_FILE"; }
+port_taken() { (exec 3<> "/dev/tcp/127.0.0.1/$1") 2> /dev/null; }
 
 write_env_file() {
   [[ -f $ENV_FILE ]] && return 0
@@ -105,6 +112,12 @@ case "${1:-start}" in
     ;;
 
   install)
+    if other_install; then
+      echo "bc2serve: this account already runs the service from $(other_home)." >&2
+      echo "bc2serve: it is one instance per person. Run ./bc2-serve.sh uninstall there first," >&2
+      echo "bc2serve: or start this checkout by hand on another port (BC2SERVE_PORT in bc2serve.env)." >&2
+      exit 1
+    fi
     write_env_file
     mkdir -p "$UNIT_DIR"
 
@@ -166,6 +179,9 @@ UNIT
       rm -f "$UNIT_FILE"
       systemctl --user daemon-reload
       echo "bc2serve: no longer starts at boot"
+    elif other_install; then
+      echo "bc2serve: the installed service belongs to $(other_home), not this checkout; nothing changed" >&2
+      exit 1
     else
       echo "bc2serve: was not installed"
     fi
@@ -227,6 +243,12 @@ UNIT
 
     if [[ -f $PIDFILE ]] && kill -0 "$(cat "$PIDFILE")" 2> /dev/null; then
       echo "bc2serve: already running as pid $(cat "$PIDFILE")" >&2
+      exit 1
+    fi
+    if port_taken "$PORT"; then
+      echo "bc2serve: something is already listening on port $PORT." >&2
+      other_install && echo "bc2serve: this account's service runs from $(other_home), probably on it." >&2
+      echo "bc2serve: set BC2SERVE_PORT in $ENV_FILE to a free port, then start again." >&2
       exit 1
     fi
 

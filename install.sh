@@ -210,6 +210,15 @@ if (( NOSERVICE )); then
   step "Done. Start it with: $BC/bc2-serve.sh install   (or $BC/bc2-serve.sh to start it by hand)"
   exit 0
 fi
+UNIT="$HOME/.config/systemd/user/bindcraft-web.service"
+if [[ -f $UNIT ]] && ! grep -qxF "WorkingDirectory=$BC" "$UNIT"; then
+  # One instance per person: the unit belongs to another checkout, and installing
+  # this one would take it over.
+  step "Installed, not started: this account already runs Binderscope from $(sed -n 's/^WorkingDirectory=//p' "$UNIT")"
+  say "   It is one instance per person. To run this one as well, set BC2SERVE_PORT in"
+  say "   $BC/bc2serve.env to a free port and start it by hand: $BC/bc2-serve.sh"
+  exit 0
+fi
 if systemctl --user show-environment >/dev/null 2>&1; then
   step "Installing the service (systemd user unit: starts at boot, restarts if it crashes)"
   run "$BC/bc2-serve.sh" install

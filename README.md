@@ -4,6 +4,8 @@ Binderscope is a web application for running protein binder design campaigns on 
 
 **BindCraft 2 is the engine it drives.** Binderscope does no design itself. BindCraft 2 chooses the binding sites, generates the binders and applies the filters that decide which designs passed. The two names are not interchangeable in this document or in the program.
 
+> **Beta.** Binderscope has been tested, but not on everything it reads. Its review has been run on real BindCraft 2 campaigns of four kinds: **de novo binders, VHH nanobodies, scFvs and linear peptides**. In every build its counts are compared with the campaign's own tables. It has **not** yet reviewed a real campaign of the other kinds BindCraft 2 designs: **Fab, ankyrin repeats, cyclic peptides, homo-oligomers, multidomain and large binders**. Those are read on the same assumptions, and the review labels them *untested*, as it does for any BindCraft 2 version other than the v1.0.3 it was checked against. Check those numbers yourself, and report anything that looks wrong. BindCraft 1 run folders are read too; that path is covered by the test suite, on synthetic runs. What each install has been run on is under [Install](#install).
+
 ---
 
 ## Read this before you install anything: do not expose it

@@ -2,6 +2,8 @@
 
 Binderscope helps you decide which designed protein binders to take into the lab. It reads BindCraft run folders, groups the designs by backbone family, checks each design on the full-length target, keeps your keep, maybe and reject decisions with reasons, and exports an order list. You use it through a small app on your own computer: choose your runs and the target, press Build, and review the results in a window. The review pages it writes are static: a folder of web pages that also opens straight from disk in a browser. There is no account, and nothing is uploaded.
 
+> **Beta.** The review has been run on real BindCraft 2 campaigns of four kinds: **de novo binders, VHH nanobodies, scFvs and linear peptides**. It has not yet reviewed a real campaign of the other kinds BindCraft 2 designs: **Fab, ankyrin repeats, cyclic peptides, homo-oligomers, multidomain and large binders**. Those are read on the same assumptions and labelled *untested* in the review, as is any BindCraft 2 version other than v1.0.3. Every count is still compared with the campaign's own tables, which catches a table read wrongly but not a column that means something different for that kind of binder, so check their numbers yourself. BindCraft 1 run folders are covered by the test suite, on synthetic runs.
+
 **You do not need BindCraft installed, or a GPU.** Binderscope reads finished
 run folders — your own, or ones a colleague sends you — and never runs a
 design itself. Python 3.12 or later is all it asks for, and the installer makes

@@ -26,7 +26,7 @@ Binderscope refuses a state-changing request that another site's page made. It c
 
 ---
 
-## Licence: you must not host this for other labs
+## License: you must not host this for other labs
 
 Binderscope's own code is MIT (see `LICENSE`).
 

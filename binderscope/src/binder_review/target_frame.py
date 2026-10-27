@@ -1045,22 +1045,29 @@ class TargetFrame:
                 "offset": float(m["offset"])}
 
     # ---- placement -------------------------------------------------------------------------------------------------
-    def place(self, design: Any, run_id: str, fit: str | None = None, n_binder_chains: int | None = None) -> Placement:
+    def place(self, design: Any, run_id: str, fit: str | None = None, n_binder_chains: int | None = None,
+              load_kw: Mapping[str, Any] | None = None) -> Placement:
         """``place_design`` with this frame; ``fit`` defaults to the frame's ``geometry.fit``."""
-        return place_design(self, design, run_id, fit=fit, n_binder_chains=n_binder_chains)
+        return place_design(self, design, run_id, fit=fit, n_binder_chains=n_binder_chains, load_kw=load_kw)
 
     # ---- context checks ---------------------------------------------------------------------------------------------
-    def context(self, binder: Any, run_id: str, contacted: Iterable[int] = (), *, config: Mapping[str, Any] | None = None
-                ) -> ContextResult:
+    def context(self, binder: Any, run_id: str, contacted: Iterable[int] = (), *, config: Mapping[str, Any] | None = None,
+                chain_roles: Mapping[str, str] | None = None) -> ContextResult:
         """Context of a binder already placed in the reference frame.
 
         ``binder``: structure.Atoms (heavy atoms; hydrogens are dropped) or an (n, 3) array. ``contacted``: UniProt numbers
         of the target residues the binder contacts (the interface module's tc, converted). Residues outside the run's
         target are ignored. Returns the data contract metrics (olig_*, rest_*, cut_n, cov_n, mem_excess), the glycan
-        distances, the inspector objects ctx and octx and diagnostics."""
+        distances, the inspector objects ctx and octx and diagnostics.
+
+        ``chain_roles``: optional {partner chain letter: require|ignore|avoid}. Approach to a require or ignore chain is
+        not counted toward the partner Context check (bridging agonists); only avoid chains keep the hazard penalty.
+        """
         cfg = copy.deepcopy(self.config)
         for sect, vals in (config or {}).items():
             cfg.setdefault(sect, {}).update(vals)
+        # Stash roles for the partner block below (read where olig_* is filled).
+        cfg["_chain_roles"] = {str(k): str(v).lower() for k, v in (chain_roles or {}).items()}
         geo, chk = cfg["geometry"], cfg["checks"]
         run = self.run_info(run_id)
         present = self._run_present(run_id)
@@ -1094,10 +1101,27 @@ class TargetFrame:
             j = int(np.argmin(d))
             return d, ix, j
 
-        # partner: the other subunit and its sugars
+        # partner: the other subunit and its sugars. RFD4 chain roles can mark a partner as an intended
+        # contact (require/ignore): those chains are dropped from the hazard check so a bridging agonist
+        # is not failed for engaging the second copy. Only "avoid" (and unmarked assembly partners) gate.
+        roles_map = cfg.get("_chain_roles") or {}
         pe = self._partner_env()
-        hit = nearest(pe)
         octx: dict[str, Any] = {}
+        if pe is not None and roles_map:
+            intended = {c for c, r in roles_map.items() if r in ("require", "ignore")}
+            if intended:
+                keep = np.array([str(c) not in intended for c in pe.chain], dtype=bool)
+                diag["partner_intended"] = sorted(intended)
+                if not keep.any():
+                    pe = None
+                    diag["partner_skip"] = (
+                        "every partner chain is an intended contact (require/ignore); "
+                        "Context partner check off"
+                    )
+                else:
+                    pe = _Env(pe.xyz[keep], pe.res[keep], pe.resname[keep], pe.name[keep],
+                              pe.sugar[keep], pe.chain[keep])
+        hit = nearest(pe)
         if hit is not None:
             d, ix, j = hit
             buried = self.partner_buried()
@@ -1367,18 +1391,46 @@ class TargetFrame:
             return {}
         pset = set(present)
         neigh = {}
+        atoms = {}
+        tracks: dict[str, Any] = {}
         labels = {}
         for c in self.partner_chains:
             at = _unpack(f"P_{c}", self.arrays)
+            heavy = at.heavy() if len(at) else at
             ca = at.select((at.name == "CA") & (at.element == "C"))
             neigh[c] = _flat(ca.xyz)
+            # Heavy atoms + per-residue tracks so a second target chain is a surface, not a CA trace.
+            if len(heavy):
+                atoms[c] = {
+                    "xyz": _flat(heavy.xyz),
+                    "name": [str(x) for x in heavy.name],
+                    "element": [str(x) for x in heavy.element],
+                    "resname": [str(x) for x in heavy.resname],
+                    "resnum": [int(x) for x in heavy.resnum],
+                }
+                try:
+                    ss = S.assign_ss(heavy)
+                    sasa = S.sasa(heavy)
+                    tracks[c] = {
+                        "resi": [int(x) for x in heavy.residues.number],
+                        "ss": list(ss),
+                        "sasa": [round(float(x), 1) for x in sasa.residue],
+                        "rsa": [None if (x != x) else round(float(x), 3) for x in sasa.relative],
+                    }
+                except Exception:
+                    tracks[c] = {"resi": [int(x) for x in heavy.residues.number]}
             labels[c] = self.partner_label(c)
         ref = self.meta["reference"]
-        return {"buried": {str(u): round(a, 1) for u, a in sorted(self.partner_buried().items()) if u in pset},
-                "neigh": neigh, "chains": list(self.partner_chains), "labels": labels,
-                "roles": {c: self.partner_role(c) for c in self.partner_chains},
-                "source": f"{ref['pdb']} assembly {ref['assembly']}" if ref.get("assembly") else str(ref["pdb"]),
-                "min_area": float(self.config["geometry"]["olig_min_area"])}
+        out = {"buried": {str(u): round(a, 1) for u, a in sorted(self.partner_buried().items()) if u in pset},
+               "neigh": neigh, "chains": list(self.partner_chains), "labels": labels,
+               "roles": {c: self.partner_role(c) for c in self.partner_chains},
+               "source": f"{ref['pdb']} assembly {ref['assembly']}" if ref.get("assembly") else str(ref["pdb"]),
+               "min_area": float(self.config["geometry"]["olig_min_area"])}
+        if atoms:
+            out["atoms"] = atoms
+            out["tracks"] = tracks
+            out["show_default"] = True
+        return out
 
     def _rest_block(self, ids: list[str]) -> dict[str, Any]:
         """Rest-of-chain context: one trace per stretch of the reference chain that at least one run's target lacks."""
@@ -2875,13 +2927,14 @@ def build_frame(reference_cif: str | Path | None, construct_pdb: str | Path, run
 # placing a design
 # ----------------------------------------------------------------------------------------------------------------
 def place_design(frame: TargetFrame, design: Any, run_id: str, *, fit: str | None = None,
-                 n_binder_chains: int | None = None) -> Placement:
+                 n_binder_chains: int | None = None,
+                 load_kw: Mapping[str, Any] | None = None) -> Placement:
     """Place a design on the reference chain.
 
-    ``design``: a structure.Complex or the path of a BindCraft PDB. The design's chain A is superposed on the reference
-    chain over the residues they share, matched by number (construct number + offset = reference number) with CA atoms;
-    deleted loops and any other absent residue simply do not take part. ``fit`` (default: the frame's ``geometry.fit``,
-    "interface"):
+    ``design``: a structure.Complex or the path of a BindCraft PDB / RFD4 CIF. The design's target chain(s) are
+    superposed on the reference chain over the residues they share, matched by number (construct number + offset =
+    reference number) with CA atoms; deleted loops and any other absent residue simply do not take part. ``fit``
+    (default: the frame's ``geometry.fit``, "interface"):
 
     * "interface" weights every shared CA by its distance to the nearest binder heavy atom (``interface_weights``: 1 up to
       ``iface_full``, Gaussian beyond, never below ``iface_floor``) and drops near residues that deviate by more than
@@ -2893,12 +2946,19 @@ def place_design(frame: TargetFrame, design: Any, run_id: str, *, fit: str | Non
 
     ``Placement.fit`` is the fit actually used. ``Placement.rmsd`` is the RMSD of all shared CA under the transform used,
     ``iface_rmsd`` the one over the residues near the binder (weight at least 0.5), ``global_rmsd`` what the whole-target fit gives and
-    ``core_rmsd`` the trimmed fit's own RMSD."""
+    ``core_rmsd`` the trimmed fit's own RMSD. ``load_kw`` is passed to ``structure.load_complex`` when ``design`` is a path
+    (RFD4: ``target_chains`` and ``binder_chain``); ``n_binder_chains`` remains the BindCraft shortcut."""
     geo = {**DEFAULT_CONFIG["geometry"], **frame.config.get("geometry", {})}
     mode = geo["fit"] if fit is None else fit
     if mode not in PLACEMENT_FITS:
         raise ValueError(f"fit must be one of {', '.join(PLACEMENT_FITS)}, not {mode!r}")
-    cx = design if isinstance(design, S.Complex) else S.load_complex(str(design), n_binder_chains=n_binder_chains)
+    if isinstance(design, S.Complex):
+        cx = design
+    else:
+        kw = dict(load_kw or {})
+        if "n_binder_chains" not in kw and "binder_chain" not in kw and n_binder_chains is not None:
+            kw["n_binder_chains"] = n_binder_chains
+        cx = S.load_complex(str(design), **kw)
     tgt = cx.target
     off = int(frame.run_info(run_id)["offset"])
     ca_t = tgt.ca_by_number()
@@ -3002,16 +3062,27 @@ class DesignCheck:
 
 def check_design(frame: TargetFrame, design: Any, run_id: str, *, design_id: str | None = None, status: str | None = None,
                  rank: int | None = None, model_k: int | None = None, fit: str | None = None,
-                 config: Mapping[str, Any] | None = None, n_binder_chains: int | None = None) -> DesignCheck:
+                 config: Mapping[str, Any] | None = None, n_binder_chains: int | None = None,
+                 load_kw: Mapping[str, Any] | None = None,
+                 chain_roles: Mapping[str, str] | None = None) -> DesignCheck:
     """Place one design (``fit`` as in ``place_design``, default the frame's ``geometry.fit``) and run every context check on it (contacts at
-    the page cut-off, 4.5 A heavy atom to heavy atom, taken in the design's own frame, then converted to UniProt)."""
-    cx = design if isinstance(design, S.Complex) else S.load_complex(str(design), n_binder_chains=n_binder_chains)
+    the page cut-off, 4.5 A heavy atom to heavy atom, taken in the design's own frame, then converted to UniProt).
+
+    ``chain_roles`` (RFD4): require|ignore|avoid per partner chain letter. Approach to a require or ignore chain is not a
+    Context-check failure (those chains are intended partners); only avoid chains keep the partner penalty."""
+    if isinstance(design, S.Complex):
+        cx = design
+    else:
+        kw = dict(load_kw or {})
+        if "n_binder_chains" not in kw and "binder_chain" not in kw and n_binder_chains is not None:
+            kw["n_binder_chains"] = n_binder_chains
+        cx = S.load_complex(str(design), **kw)
     pl = place_design(frame, cx, run_id, fit=fit)
     cutoff = float(frame.config["geometry"]["contact_cutoff"])
     con = S.residue_contacts(cx.target, cx.binder, cutoff)
     contacted = sorted(int(n) + pl.offset for n in con.a_residues)
     placed = pl.apply(cx.binder)
-    res = frame.context(placed, run_id, contacted, config=config)
+    res = frame.context(placed, run_id, contacted, config=config, chain_roles=chain_roles)
     hs = frame.hotspots(run_id)
     hot_d: dict[int, float] = {}
     tgt_p = pl.apply(cx.target).heavy()
@@ -3041,8 +3112,12 @@ def check_run(frame: TargetFrame, run: Any, *, run_id: str | None = None, includ
     designs = list(run.accepted()) + (list(run.rejected_with_structure()) if include_rejected else [])
     out = []
     for i, d in enumerate(designs):
-        out.append(check_design(frame, d.structure_path, rid, design_id=d.id, status=d.status, rank=d.rank,
-                                model_k=d.structure_model, fit=fit))
+        out.append(check_design(
+            frame, d.structure_path, rid, design_id=d.id, status=d.status, rank=d.rank,
+            model_k=d.structure_model, fit=fit,
+            load_kw=model.load_complex_kwargs(d),
+            chain_roles=model.design_chain_roles(d) or None,
+        ))
         if progress:
             progress(i + 1, len(designs))
     return out

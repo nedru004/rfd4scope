@@ -7,7 +7,7 @@ from typing import Any
 
 
 def _friendly_reader(name: str, version: Any) -> str:
-    base = {"bindcraft1": "BindCraft 1", "bindcraft2": "BindCraft 2"}.get(name, name)
+    base = {"bindcraft1": "BindCraft 1", "bindcraft2": "BindCraft 2", "rfd4": "RFdiffusion 4"}.get(name, name)
     v = str(version).split(" ")[0] if version and name == "bindcraft1" else ""
     return f"{base} {v.lstrip('v')}".strip() if v else base
 
@@ -32,8 +32,9 @@ def inspect_run(path: str) -> dict[str, Any]:
         except OSError:
             kids = []
         return {"ok": False, "children": kids,
-                "error": "This does not look like a BindCraft run folder. Choose the folder that holds the stats CSVs "
-                         "and the Accepted folder (BindCraft 1), or 1_Trajectories, 2_Refolded and 3_Ranked (BindCraft 2)."}
+                "error": "This does not look like a known run folder. Choose the folder that holds the stats CSVs "
+                         "and the Accepted folder (BindCraft 1), 1_Trajectories / 2_Refolded / 3_Ranked (BindCraft 2), "
+                         "or inference_metrics/per_example_metrics.csv (RFdiffusion 4)."}
     rid = default_run_id(folder.resolve())
     try:
         run = reader.read_run(folder, rid, settings_path=None, construct_path=None, check_structures=False, hash_structures=False)
@@ -52,7 +53,7 @@ def inspect_run(path: str) -> dict[str, Any]:
 
 
 def target_candidates(folder: Path, recorded_name: str | None, limit: int = 6) -> list[dict[str, Any]]:
-    """PDB files next to the run folder that may be the structure given to BindCraft; the one named in the settings file comes first."""
+    """PDB files next to the run folder that may be the target construct used for design; the one named in the settings file comes first."""
     seen: list[dict[str, Any]] = []
     for base in (folder, folder.parent):
         try:
@@ -94,7 +95,7 @@ def _ca_by_number(path: str, chain: str | None) -> dict[int, tuple[str, list[flo
 
 
 def fit_preview(construct: str, reference: str, chain: str) -> dict[str, Any]:
-    """How well the structure given to BindCraft fits a chain of the full-length reference: the same numbering offset vote and CA fits the build uses.
+    """How well the target construct fits a chain of the full-length reference: the same numbering offset vote and CA fits the build uses.
     Shown on the import page before building, so a wrong chain, another target or a very different conformation is seen at once."""
     import numpy as np
 

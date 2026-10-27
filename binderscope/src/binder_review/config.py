@@ -24,6 +24,14 @@ campaign_metadata.json):
                     defaults. `filters_for_run` builds such a set; a run that records nothing is judged
                     by DEFAULT_FILTERS.
 
+A fifth kind is chosen by the person at import, not by the design tool:
+
+  user              Thresholds the person set (or accepted as defaults) when importing an RFD4 run.
+                    RFD4 writes only a pass boolean, never the thresholds behind it, so Binderscope
+                    cannot reconstruct them. `filters_for_run` builds a FilterSet of source "user"
+                    and re-evaluates every design from the metrics; the tool's own pass is recorded
+                    beside the verdict, never merged into it.
+
 Thresholds are inclusive: a value equal to the threshold passes.
 """
 
@@ -47,6 +55,8 @@ CSV_FAILURE = "failure_csv.csv"
 
 #: Provenance of a rule whose threshold the run recorded itself (see the module docstring).
 PROVENANCE_CAMPAIGN = "campaign"
+#: Provenance of a rule the person chose at import (RFD4 and similar; see the module docstring).
+PROVENANCE_USER = "user"
 
 # Floating point slack for comparisons against thresholds; CSV values are rounded to 2 decimals.
 EPS = 1e-9
@@ -63,11 +73,12 @@ class FilterRule:
     higher_is_better  True: the value must be >= threshold; False: it must be <= threshold.
     per_model       threshold applied to the 1_<stem> .. 5_<stem> columns that have a value, or None
                     when BindCraft does not filter single models on this metric.
-    provenance      "counter-verified", "bounded" or "memory" (reconstructed BindCraft 1 defaults), or
-                    "campaign" (the run recorded this threshold itself); see the module docstring.
+    provenance      "counter-verified", "bounded" or "memory" (reconstructed BindCraft 1 defaults),
+                    "campaign" (the run recorded this threshold itself), or "user" (chosen at import);
+                    see the module docstring.
     note            what the data say about the rule.
 
-    The fields below are used by rules of provenance "campaign" only; the reconstructed defaults leave
+    The fields below are used by rules of provenance "campaign" or "user"; the reconstructed defaults leave
     them at their defaults and are unchanged.
 
     metric          the stem the values are stored under, when it is not `stem`. For a campaign rule `stem`
@@ -77,7 +88,13 @@ class FilterRule:
     mandatory       BindCraft's flag: a mandatory filter fails a design whose metric could not be measured.
     judged_per_model  BindCraft judges the filter on each validation model while the CSV carries the rounded
                     mean (PER_MODEL_JUDGED), so a design can fail it with a CSV value that passes.
-    source          where a campaign threshold was read ("campaign_metadata" or "settings.min_plddt_final").
+    source          where a campaign threshold was read ("campaign_metadata" or "settings.min_plddt_final"),
+                    or "user" / "rfd4.defaults" for an import cutoff.
+    per_chain       when True, the rule is applied to each target chain in DesignRecord.per_chain (scope is
+                    the chain letter), not to Average alone. Used by RFD4 so a design must clear the bar on
+                    every chain it must engage.
+    chains          when set with per_chain, only these chain letters are checked; otherwise every chain in
+                    the per_chain dict (minus chains whose role is "ignore") is checked.
     """
 
     stem: str
@@ -90,6 +107,8 @@ class FilterRule:
     mandatory: Optional[bool] = None
     judged_per_model: bool = False
     source: str = ""
+    per_chain: bool = False
+    chains: Optional[tuple[str, ...]] = None
 
     @property
     def value_stem(self) -> str:
@@ -101,6 +120,10 @@ class FilterRule:
         return self.provenance == PROVENANCE_CAMPAIGN
 
     @property
+    def from_user(self) -> bool:
+        return self.provenance == PROVENANCE_USER
+
+    @property
     def op(self) -> str:
         return ">=" if self.higher_is_better else "<="
 
@@ -109,7 +132,7 @@ class FilterRule:
 class FilterFailure:
     """One failed check of a design against one rule.
 
-    scope   "Average" or the model number as a string ("1", "2").
+    scope   "Average", a model number as a string ("1", "2"), or a chain letter for a per-chain rule.
     value   the design's value in the CSV scale.
     gap     how far the value misses the threshold, always positive and in the metric's own unit
             (threshold - value for ">=" rules, value - threshold for "<=" rules).
@@ -206,6 +229,8 @@ def check_filters(
     models: Mapping[int, Mapping[str, Optional[float]]],
     interface_aas: Optional[Mapping[str, Mapping[str, float]]] = None,
     rules: Iterable[FilterRule] = DEFAULT_FILTERS,
+    per_chain: Optional[Mapping[str, Mapping[str, Optional[float]]]] = None,
+    chain_roles: Optional[Mapping[str, str]] = None,
 ) -> list[FilterFailure]:
     """Apply BindCraft-style filters to one design.
 
@@ -213,12 +238,30 @@ def check_filters(
     models          model number -> {metric stem -> value}; models without values may be absent.
     interface_aas   {"avg": {"K": 1.0, ...}, "1": {...}, "2": {...}} from the InterfaceAAs columns;
                     only the "avg" entry is used (the amino-acid rules are average-only).
+    per_chain       chain letter -> {metric stem -> value}; used when a rule has per_chain=True.
+    chain_roles     chain letter -> "require" | "ignore" | "avoid". ignore chains are not gated;
+                    avoid chains invert the rule (engaging them fails a "higher is better" cut-off).
     Metrics that are missing are skipped, never failed, so a run that lacks a metric simply is not
     checked on it. Returns one FilterFailure per failed (rule, scope) pair, in rule order.
     """
     failures: list[FilterFailure] = []
+    roles = {str(k): str(v).lower() for k, v in (chain_roles or {}).items()}
     for rule in rules:
         stem = rule.stem
+        if rule.per_chain:
+            chains = list(rule.chains) if rule.chains is not None else list((per_chain or {}).keys())
+            for chain in chains:
+                role = roles.get(chain, "require")
+                if role == "ignore":
+                    continue
+                vals = (per_chain or {}).get(chain) or {}
+                v = vals.get(rule.value_stem)
+                if v is None:
+                    continue
+                higher = rule.higher_is_better if role != "avoid" else (not rule.higher_is_better)
+                if _violates(v, rule.threshold, higher):
+                    failures.append(_failure_raw(rule.stem, chain, float(v), rule.threshold, higher))
+            continue
         if stem.startswith("InterfaceAAs_"):
             letter = stem.split("_", 1)[1]
             avg_aas = (interface_aas or {}).get("avg") or {}
@@ -238,6 +281,11 @@ def check_filters(
 def _failure(rule: FilterRule, scope: str, value: float, threshold: float) -> FilterFailure:
     gap = (threshold - value) if rule.higher_is_better else (value - threshold)
     return FilterFailure(rule.stem, scope, float(value), float(threshold), rule.higher_is_better, float(gap))
+
+
+def _failure_raw(stem: str, scope: str, value: float, threshold: float, higher_is_better: bool) -> FilterFailure:
+    gap = (threshold - value) if higher_is_better else (value - threshold)
+    return FilterFailure(stem, scope, float(value), float(threshold), higher_is_better, float(gap))
 
 
 def failed_stems(failures: Iterable[FilterFailure]) -> list[str]:
@@ -282,6 +330,7 @@ class FilterSet:
     source       "default": DEFAULT_FILTERS, BindCraft 1's reconstructed thresholds (a run that records none);
                  "campaign": the thresholds the run recorded itself, which are judged first (a design BindCraft
                  failed has failed) and re-evaluated only for what BindCraft did not report;
+                 "user": thresholds the person chose at import (RFD4); re-evaluated from the metrics;
                  "explicit": rules a caller passed in (recomputed from the metrics, nothing else)
     unevaluated  campaign thresholds on metrics Binderscope does not carry
     unlimited    campaign filters whose threshold is infinite (no limit); never rules
@@ -296,6 +345,10 @@ class FilterSet:
     @property
     def from_campaign(self) -> bool:
         return self.source == "campaign"
+
+    @property
+    def from_user(self) -> bool:
+        return self.source == "user"
 
 
 DEFAULT_FILTER_SET = FilterSet(DEFAULT_FILTERS, "default", "BindCraft 1 default filters (reconstructed)")
@@ -321,6 +374,19 @@ def _recorded_filters(run: Any) -> tuple[list[Mapping[str, Any]], list[str], boo
     return recorded, unlimited, bool(recorded or unlimited)
 
 
+#: Stem aliases a reader may store under its own name or a BindCraft stem (RFD4 cutoffs use both).
+_USER_METRIC_ALIASES: dict[str, str] = {
+    "plddt_coi": "pLDDT", "plddt": "pLDDT",
+    "iptm_coi": "i_pTM", "iptm": "i_pTM", "i_ptm": "i_pTM",
+    "min_ipae_coi": "min_ipae", "min_ipae": "min_ipae",
+    "ipae_coi": "i_pAE", "i_pae": "i_pAE",
+    "refolded_backbone_rmsd": "complex_rmsd", "complex_rmsd": "complex_rmsd",
+    "refolded_motif_ca_rmsd": "motif_ca_rmsd", "motif_ca_rmsd": "motif_ca_rmsd",
+    "refolded_motif_allatom_rmsd": "motif_allatom_rmsd", "motif_allatom_rmsd": "motif_allatom_rmsd",
+    "has_clash": "has_clash", "ranking_score": "ranking_score",
+}
+
+
 def _storage(name: str) -> tuple[Optional[str], Optional[float], str]:
     """(stem the campaign's metric is stored under, scale factor, why there is none) for a BindCraft 2 filter name.
 
@@ -340,20 +406,43 @@ def _storage(name: str) -> tuple[Optional[str], Optional[float], str]:
     return None, None, "Binderscope carries no metric of this name (the column stays in the design's extras)"
 
 
+def _user_storage(name: str) -> tuple[Optional[str], Optional[float], str]:
+    """(stem, factor, why) for a user / RFD4 cutoff name."""
+    low = name.lower().replace(".", "_")
+    if low in _USER_METRIC_ALIASES:
+        return _USER_METRIC_ALIASES[low], 1.0, ""
+    stem, factor, why = _storage(name)
+    if stem is not None:
+        return stem, factor, why
+    # Allow a stem that is already the stored name.
+    return name, 1.0, ""
+
+
+def _design_has_stem(designs: list[Any], stem: str, per_chain: bool) -> bool:
+    if per_chain:
+        return any((getattr(d, "per_chain", None) or {}) and
+                   any(vals.get(stem) is not None for vals in (d.per_chain or {}).values())
+                   for d in designs) or any((d.metrics or {}).get(stem) is not None for d in designs)
+    return any((d.metrics or {}).get(stem) is not None for d in designs)
+
+
 def filters_for_run(run: Any) -> FilterSet:
     """The filters `run` was judged by.
 
-    A run that recorded its own thresholds (BindCraft 2: campaign_metadata.json, read by its reader into
-    annotations["filters"]) is judged by them, every rule with provenance "campaign". A run that did not (BindCraft 1,
-    which does not copy its filter file) keeps DEFAULT_FILTERS. A recorded threshold on a metric Binderscope does not
-    carry, or that no design carries, or whose scale differs from the stored one, cannot be evaluated: it goes to
-    `unevaluated` and is never silently dropped. An infinite threshold means no limit and is neither a rule nor
-    unevaluated (the reader listed it under filters_unlimited; it stays in `unlimited`).
+    A run that recorded its own thresholds (BindCraft 2: campaign_metadata.json, or RFD4: user cutoffs read into
+    annotations["filters"]) is judged by them. BindCraft 2 rules carry provenance "campaign"; RFD4 / user cutoffs
+    carry provenance "user" and FilterSet source "user". A run that recorded nothing (BindCraft 1) keeps
+    DEFAULT_FILTERS. A recorded threshold on a metric Binderscope does not carry, or that no design carries, or
+    whose scale differs from the stored one, cannot be evaluated: it goes to `unevaluated` and is never silently
+    dropped. An infinite threshold means no limit and is neither a rule nor unevaluated.
     """
     recorded, unlimited, has = _recorded_filters(run)
     if not has:
         return DEFAULT_FILTER_SET
     designs = list(getattr(run, "designs", None) or [])
+    # User cutoffs win the set's source when any recorded filter says so (RFD4); otherwise campaign.
+    is_user = any(str(f.get("provenance") or f.get("source") or "").lower() in ("user", "rfd4.defaults")
+                  for f in recorded)
     rules: list[FilterRule] = []
     skipped: list[UnevaluatedFilter] = []
     for f in recorded:
@@ -362,17 +451,31 @@ def filters_for_run(run: Any) -> FilterSet:
         thr = float(f["threshold"])
         mand = f.get("mandatory")
         mand = bool(mand) if isinstance(mand, bool) else None
-        src = str(f.get("source") or "campaign_metadata")
+        src = str(f.get("source") or ("rfd4.defaults" if is_user else "campaign_metadata"))
         op = ">=" if higher else "<="
-        stem, factor, why = _storage(name)
+        per_chain = bool(f.get("per_chain"))
+        chain_list = f.get("chains")
+        chains = tuple(str(c) for c in chain_list) if isinstance(chain_list, (list, tuple)) and chain_list else None
+        stem, factor, why = (_user_storage(name) if is_user else _storage(name))
         if stem is not None and factor != 1.0:
             why = f"Binderscope stores this metric multiplied by {factor:g}, so its value is not on the scale of the recorded threshold"
             stem = None
-        if stem is not None and not any((d.metrics.get(stem) is not None) for d in designs):
+        if stem is not None and not _design_has_stem(designs, stem, per_chain):
             why = f"no design of this run carries the metric {stem}"
             stem = None
         if stem is None:
             skipped.append(UnevaluatedFilter(name, op, thr, mand, src, why))
+            continue
+        if is_user:
+            bits = [f"The threshold chosen at import ({src})."]
+            if per_chain:
+                bits.append("Applied to every required target chain; a design must clear the bar on each.")
+            if stem != name:
+                bits.append(f"Evaluated on {stem}.")
+            rules.append(FilterRule(
+                name, thr, higher, per_model=None, provenance=PROVENANCE_USER, note=" ".join(bits),
+                metric=stem if stem != name else None, mandatory=mand, judged_per_model=False, source=src,
+                per_chain=per_chain, chains=chains))
             continue
         per_model = name in PER_MODEL_JUDGED
         bits = [f"The threshold this campaign recorded ({'mandatory' if mand else 'optional'}; {src})."]
@@ -384,4 +487,77 @@ def filters_for_run(run: Any) -> FilterSet:
         rules.append(FilterRule(
             name, thr, higher, per_model=None, provenance=PROVENANCE_CAMPAIGN, note=" ".join(bits),
             metric=stem if stem != name else None, mandatory=mand, judged_per_model=per_model, source=src))
+    if is_user:
+        return FilterSet(tuple(rules), "user", "the thresholds chosen at import", tuple(skipped), tuple(unlimited))
     return FilterSet(tuple(rules), "campaign", "the thresholds this campaign recorded", tuple(skipped), tuple(unlimited))
+
+
+def parse_cutoff_arg(text: str) -> dict[str, Any]:
+    """Parse one ``--cutoff NAME=OP:VALUE`` or ``NAME@CHAIN=OP:VALUE`` into a filter annotation dict.
+
+    OP is ``ge``, ``le``, ``>=``, ``<=``, ``gt``, ``lt``. NAME may use a dotted RFD4 column (``oracle.iptm_coi``)
+    or a short alias (``iptm``, ``min_ipae``). ``@CHAIN`` makes the rule per-chain for that letter only.
+    """
+    raw = str(text).strip()
+    if "=" not in raw:
+        raise ValueError(f"cutoff {raw!r}: expected NAME=OP:VALUE")
+    left, right = raw.split("=", 1)
+    left, right = left.strip(), right.strip()
+    chain: Optional[str] = None
+    if "@" in left:
+        name, chain = left.split("@", 1)
+        name, chain = name.strip(), chain.strip()
+        if not chain:
+            raise ValueError(f"cutoff {raw!r}: empty chain after @")
+    else:
+        name = left
+    if ":" in right:
+        op_s, thr_s = right.split(":", 1)
+    else:
+        # Bare number: infer direction from common names.
+        op_s, thr_s = "ge", right
+    op_s = op_s.strip().lower()
+    op_map = {">=": "ge", ">": "gt", "<=": "le", "<": "lt", "ge": "ge", "le": "le", "gt": "gt", "lt": "lt"}
+    if op_s not in op_map:
+        raise ValueError(f"cutoff {raw!r}: unknown op {op_s!r}")
+    op_key = op_map[op_s]
+    higher = op_key in ("ge", "gt")
+    try:
+        thr = float(thr_s.strip())
+    except ValueError as ex:
+        raise ValueError(f"cutoff {raw!r}: threshold is not a number") from ex
+    # Strip a leading oracle. / oracle_ppi. prefix for the stored name.
+    short = name
+    for prefix in ("oracle_ppi.", "oracle.", "refolded_", "motif_scaffold.", "ppi."):
+        if short.lower().startswith(prefix):
+            short = short[len(prefix):]
+            break
+    out: dict[str, Any] = {
+        "name": short, "op": ">=" if higher else "<=", "threshold": thr, "higher": higher,
+        "mandatory": True, "source": "user", "provenance": PROVENANCE_USER, "per_chain": bool(chain),
+    }
+    if chain:
+        out["chains"] = [chain]
+        # Per-chain short names: iptm / min_ipae rather than iptm_coi.
+        if out["name"].lower() in ("iptm_coi", "i_ptm"):
+            out["name"] = "iptm"
+        if out["name"].lower() in ("min_ipae_coi",):
+            out["name"] = "min_ipae"
+    return out
+
+
+#: Default cutoffs for an RFD4 import when the person does not pass --cutoff.
+RFD4_DEFAULT_CUTOFFS: tuple[dict[str, Any], ...] = (
+    {"name": "pLDDT", "op": ">=", "threshold": 0.80, "higher": True, "mandatory": True,
+     "source": "rfd4.defaults", "provenance": PROVENANCE_USER, "per_chain": False},
+    {"name": "has_clash", "op": "<=", "threshold": 0.0, "higher": False, "mandatory": True,
+     "source": "rfd4.defaults", "provenance": PROVENANCE_USER, "per_chain": False},
+    {"name": "motif_ca_rmsd", "op": "<=", "threshold": 1.0, "higher": False, "mandatory": False,
+     "source": "rfd4.defaults", "provenance": PROVENANCE_USER, "per_chain": False},
+    {"name": "complex_rmsd", "op": "<=", "threshold": 2.5, "higher": False, "mandatory": False,
+     "source": "rfd4.defaults", "provenance": PROVENANCE_USER, "per_chain": False},
+    {"name": "iptm", "op": ">=", "threshold": 0.50, "higher": True, "mandatory": True,
+     "source": "rfd4.defaults", "provenance": PROVENANCE_USER, "per_chain": True},
+    {"name": "min_ipae", "op": "<=", "threshold": 2.0, "higher": False, "mandatory": True,
+     "source": "rfd4.defaults", "provenance": PROVENANCE_USER, "per_chain": True},
+)

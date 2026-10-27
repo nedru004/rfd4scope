@@ -33,7 +33,7 @@ from . import disulfides as D
 from . import liabilities as L
 from . import structure as S
 from .model import (BINDCRAFT_INTERFACE_CUTOFF, CONTACT_CUTOFF, HBOND_MAX_DIST, HOTSPOT_TOUCH_CUTOFF,
-                    SALT_BRIDGE_MAX_DIST, DesignRecord, binder_chain_count)
+                    SALT_BRIDGE_MAX_DIST, DesignRecord, binder_chain_count, load_complex_kwargs)
 
 ANALYSIS_VERSION = 2          # bump when the numbers change; part of every cache key
 DEFAULT_N_POINTS = "accurate"
@@ -142,6 +142,8 @@ class DesignAnalysis:
     # comparison and bookkeeping
     vs_bindcraft: dict = field(default_factory=dict)
     meta: dict = field(default_factory=dict)
+    # Per target-chain interface summary (RFD4 multi-chain target): chain letter -> {n_contacts, dsasa, n_hbonds, ...}
+    per_chain: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return _jsonable(dataclasses.asdict(self))
@@ -175,10 +177,24 @@ def _jsonable(o: Any) -> Any:
 
 # --------------------------------------------------------------------------------------------- loading
 def load_for_analysis(path: str | os.PathLike, target_chain: str = "A", binder_chain: str = "B",
-                      n_binder_chains: int | None = None) -> S.Complex:
-    """Load a BindCraft complex for analysis: hydrogens kept (H-bonds use them), heavy-atom tables otherwise."""
-    return S.load_complex(str(path), target_chain=target_chain, binder_chain=binder_chain, strip_h=False,
-                          n_binder_chains=n_binder_chains)
+                      n_binder_chains: int | None = None,
+                      target_chains: Sequence[str] | None = None,
+                      **load_kw: Any) -> S.Complex:
+    """Load a complex for analysis: hydrogens kept (H-bonds use them), heavy-atom tables otherwise.
+
+    ``target_chains`` / ``binder_chain`` as a list name an RFD4 multi-chain target; BindCraft designs
+    keep the defaults (target A, binder B or last N).
+    """
+    kw = dict(load_kw)
+    if target_chains is not None:
+        kw["target_chains"] = target_chains
+    if n_binder_chains is not None and "binder_chain" not in kw and binder_chain == "B":
+        kw["n_binder_chains"] = n_binder_chains
+    elif "binder_chain" not in kw:
+        kw["binder_chain"] = binder_chain
+    if "target_chains" not in kw and "target_chain" not in kw:
+        kw["target_chain"] = target_chain
+    return S.load_complex(str(path), strip_h=False, **kw)
 
 
 # --------------------------------------------------------------------------------------------- helpers
@@ -495,6 +511,38 @@ def analyze_design(cx: S.Complex, design: Optional[DesignRecord] = None, hotspot
               "notes": notes, "hotspots_missing": missing}
     if design is not None:
         a.vs_bindcraft = compare_with_bindcraft(a, design, cx, bnd)
+
+    # ---- per target-chain summary (RFD4 multi-chain target): contacts and buried area against each partner alone
+    tchains = tuple(getattr(cx, "target_chains", ()) or ())
+    if len(tchains) > 1:
+        per: dict[str, dict] = {}
+        for ch in tchains:
+            t_ch = tgt.select(tgt.chain == ch)
+            if not len(t_ch):
+                continue
+            c_ch = S.residue_contacts(t_ch, bnd, CONTACT_CUTOFF)
+            # Approximate per-chain buried area: share of target-side dSASA on this chain's residues.
+            t_nums = set(int(n) for n in t_ch.residues.number)
+            dsasa_t = sum(v for n, v in a.t_dsasa.items() if n in t_nums)
+            n_hb = sum(1 for h in a.hbonds if int(h["t"]) in t_nums)
+            n_salt = sum(1 for s_ in a.salt if int(s_["t"]) in t_nums)
+            entry = {
+                "n_contacts": int(c_ch.n_atom_contacts),
+                "n_target_res": len(c_ch.a_residues),
+                "n_binder_res": len(c_ch.b_residues),
+                "dsasa_target": round(float(dsasa_t), 1),
+                "n_hbonds": int(n_hb),
+                "n_salt": int(n_salt),
+                "tc": [int(x) for x in c_ch.a_residues],
+            }
+            # Merge AF3 per-partner scores when the design carries them.
+            if design is not None:
+                af3 = (getattr(design, "per_chain", None) or {}).get(ch) or {}
+                for stem in ("iptm", "i_pTM", "min_ipae"):
+                    if af3.get(stem) is not None:
+                        entry[stem] = af3[stem]
+            per[ch] = entry
+        a.per_chain = per
     return a
 
 
@@ -612,10 +660,9 @@ def code_fingerprint() -> str:
 
 def _cache_key(path: str, hotspots: Sequence[int], design: DesignRecord) -> str:
     """Structure hash plus everything else the analysis depends on (hotspots, the BindCraft columns it is compared with)."""
-    # "nb": the same file analysed with one binder chain and with two gives
-    # different numbers, and the file's hash cannot tell them apart.
+    # Chain roles are in the key: the same file as binder B vs binder A gives different numbers.
     meta = json.dumps({"v": ANALYSIS_VERSION, "code": code_fingerprint(), "hot": sorted(int(h) for h in hotspots), "model": design.structure_model,
-                       "nb": binder_chain_count(design),
+                       "load": load_complex_kwargs(design),
                        "buns": [BUNS_MIN_BURIAL, BUNS_MAX_SASA], "points": DEFAULT_N_POINTS, "metrics": design.metrics,
                        "models": {str(k): v for k, v in design.models.items()},
                        "iface": design.interface_residues}, sort_keys=True, default=str)
@@ -624,7 +671,7 @@ def _cache_key(path: str, hotspots: Sequence[int], design: DesignRecord) -> str:
 
 def _work(args: tuple) -> tuple[str, dict]:
     key, design, hotspots, loader_name = args
-    cx = load_for_analysis(design.structure_path, n_binder_chains=binder_chain_count(design))
+    cx = load_for_analysis(design.structure_path, **load_complex_kwargs(design))
     a = analyze_design(cx, design, hotspots)
     return key, a.to_dict()
 

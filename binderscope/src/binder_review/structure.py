@@ -567,13 +567,14 @@ class Complex:
     target: Atoms
     binder: Atoms
     hydrogens: Atoms
-    target_chain: str
+    target_chain: str                                   # the first target chain; `target_chains` has them all
     binder_chain: str                                   # the first binder chain; `binder_chains` has them all
     issues: list[ValidationIssue]
     other: Atoms = field(default_factory=Atoms.empty)
     hydrogens_stripped: bool = True
     links: list[Link] = field(default_factory=list)      # covalent links the file records (often none: BindCraft 2 writes no _struct_conn)
     binder_chains: tuple[str, ...] = ()                  # every chain of the binder, in file order
+    target_chains: tuple[str, ...] = ()                  # every chain of the target, in file order
 
     def recorded_disulfides(self, chain: str | None = None) -> list[tuple[int, int]]:
         """Disulfides the file records inside one chain (default: the binder) as pairs of file residue numbers."""
@@ -620,7 +621,8 @@ class Complex:
 
 def load_complex(path: str, target_chain: str = "A", binder_chain: str | Sequence[str] | None = "B",
                  strip_h: bool = True, strict: bool = True, keep_hetero: bool = False, model: int = 0,
-                 n_binder_chains: int | None = None) -> Complex:
+                 n_binder_chains: int | None = None,
+                 target_chains: Sequence[str] | None = None) -> Complex:
     """Load a complex of a target and a binder from PDB or mmCIF.
 
     BindCraft 1 relaxed PDBs (explicit hydrogens, TER records), the truncated target PDB (pass ``binder_chain=None``
@@ -635,6 +637,12 @@ def load_complex(path: str, target_chain: str = "A", binder_chain: str | Sequenc
     the targets first. ``binder`` is then one table over all of them, in file order,
     and ``binder_chains`` names them; ``binder_chain`` stays the first, for callers
     that handle one.
+
+    **The target may be several chains** -- an RFD4 motif scaffold against a dimer names
+    them with ``target_chains=["B", "C"]``. ``target`` is then one table over all of them
+    (atoms keep their chain ids); ``target_chain`` stays the first, for the numbered
+    construct the target frame is built on. When ``target_chains`` is omitted, only
+    ``target_chain`` is used (BindCraft's single-chain target).
     """
     st = _read_gemmi(path)
     mdl = st[model]
@@ -653,9 +661,16 @@ def load_complex(path: str, target_chain: str = "A", binder_chain: str | Sequenc
             rows_by_chain[ch.name] = rows
     issues: list[ValidationIssue] = []
     order = list(rows_by_chain)                       # file order, which is what "the last n chains" means
+    if target_chains is not None:
+        target_names = [str(c) for c in target_chains]
+        if not target_names and target_chain:
+            target_names = [target_chain]
+    else:
+        target_names = [target_chain] if target_chain is not None else []
+    target_set = set(target_names)
     if n_binder_chains is not None:
         n = max(0, int(n_binder_chains))
-        rest = [c for c in order if c != target_chain]
+        rest = [c for c in order if c not in target_set]
         binder_names = rest[-n:] if n else []
         if n and len(binder_names) < n:
             issues.append(ValidationIssue(
@@ -668,7 +683,7 @@ def load_complex(path: str, target_chain: str = "A", binder_chain: str | Sequenc
         binder_names = [binder_chain]
     else:
         binder_names = list(binder_chain)
-    want = [c for c in ([target_chain] + binder_names) if c is not None]
+    want = [c for c in (target_names + binder_names) if c is not None]
     for c in want:
         if c not in rows_by_chain:
             issues.append(ValidationIssue("missing_chain", "error",
@@ -679,7 +694,9 @@ def load_complex(path: str, target_chain: str = "A", binder_chain: str | Sequenc
     def table(c: str | None) -> Atoms:
         return _atoms_from_rows(rows_by_chain[c]) if c is not None and c in rows_by_chain else Atoms.empty()
 
-    tgt_all = table(target_chain)
+    # One table over every target chain, in the order asked for: the first chain is the
+    # numbered construct for the target frame; the rest keep their own chain ids.
+    tgt_all = Atoms.concat([table(c) for c in target_names]) if target_names else Atoms.empty()
     # One table over every binder chain, in file order: downstream this is "the
     # binder", and its atoms carry their own chain ids, so a consumer that needs
     # to tell the chains apart still can.
@@ -713,11 +730,12 @@ def load_complex(path: str, target_chain: str = "A", binder_chain: str | Sequenc
             if len(tab) and (np.nanmax(tab.bfactor) > 100.0 or np.nanmin(tab.bfactor) < 0.0):
                 issues.append(ValidationIssue("bfactor_range", "info",
                                               f"{label} B-factors outside 0 to 100, so not pLDDT on a 0 to 100 scale"))
-    if strict and not len(tgt_all) and target_chain in want:
-        raise StructureError(f"{path}: no atoms in target chain {target_chain!r}")
+    primary = target_names[0] if target_names else (target_chain or "")
+    if strict and not len(tgt_all) and primary in want:
+        raise StructureError(f"{path}: no atoms in target chain {primary!r}")
     atoms = Atoms.concat([tgt_all, bnd_all, other])
-    return Complex(str(path), atoms, tgt_all, bnd_all, hyd, target_chain, binder_names[0] if binder_names else "",
-                   issues, other, strip_h, _links(st), tuple(binder_names))
+    return Complex(str(path), atoms, tgt_all, bnd_all, hyd, primary, binder_names[0] if binder_names else "",
+                   issues, other, strip_h, _links(st), tuple(binder_names), tuple(target_names))
 
 
 # --------------------------------------------------------------------------------------------- writing

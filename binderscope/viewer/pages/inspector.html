@@ -307,7 +307,7 @@ const S = {
 };
 const DESIGN_PREFIX = PF.get('predictors.design_model_prefix', 'AF2');
 const st = { reveal: false, tag: INS.order[0], tab: 'iface', color: 'chain', sel: null, hl: null, split: 0, paeSel: null, hover: null, consurf: false,
-  show: { iface: true, hb: true, salt: true, hot: true, buns: true, patch: false, gly: false, mem: false, surf: false, ctx: true, fp: false, olig: false, term: false }, preds: {}, tsize: TM.size.get() };
+  show: { iface: true, hb: true, salt: true, hot: true, buns: true, patch: false, gly: false, mem: false, surf: false, ctx: true, fp: false, olig: !!(INS.olig && INS.olig.show_default), term: false }, preds: {}, tsize: TM.size.get() };
 { const ms = []; INS.order.forEach((t) => (INS.designs[t].poses || []).forEach((p) => { if (ms.indexOf(p.model) < 0) ms.push(p.model); })); ms.forEach((m) => (st.preds[m] = false)); st.preds.seeds = false; }
 const cur = () => INS.designs[st.tag];
 const one = (resn) => ONE[resn] || 'X';
@@ -1024,7 +1024,22 @@ function restSegments(X) {
 }
 function addContext(X, hl) {
   if (!V) return;
-  if (PF.cap('olig') && INS.olig && INS.olig.neigh && (st.show.olig || hl.olig)) Object.keys(INS.olig.neigh).sort().forEach((c) => { const fl = INS.olig.neigh[c]; if (fl && fl.length) addTrace(fl, C.isDark() ? '#8c94a9' : '#9aa3b8', PF.t('view.olig.trace', { chain: c }, 'other subunit (chain {chain})'), 0.3); });
+  if (PF.cap('olig') && INS.olig && (st.show.olig || hl.olig)) {
+    const col = C.isDark() ? '#8c94a9' : '#9aa3b8';
+    if (INS.olig.atoms) {
+      Object.keys(INS.olig.atoms).sort().forEach((c) => {
+        const blk = INS.olig.atoms[c]; if (!blk || !blk.xyz || !blk.xyz.length) return;
+        // Partner heavy atoms as a cartoon surface (CA backbone) so a two-chain target is readable.
+        const ca = [];
+        for (let i = 0; i < blk.xyz.length; i += 3) {
+          if ((blk.name[i / 3] || '') === 'CA') ca.push(blk.xyz[i], blk.xyz[i + 1], blk.xyz[i + 2]);
+        }
+        if (ca.length) addTrace(ca, col, PF.t('view.olig.trace', { chain: c }, 'partner (chain {chain})'), 0.45);
+      });
+    } else if (INS.olig.neigh) {
+      Object.keys(INS.olig.neigh).sort().forEach((c) => { const fl = INS.olig.neigh[c]; if (fl && fl.length) addTrace(fl, col, PF.t('view.olig.trace', { chain: c }, 'other subunit (chain {chain})'), 0.3); });
+    }
+  }
   if (PF.cap('footprints') && INS.partners && (st.show.fp || hl.fp)) { const FL = PF.get('footprints.labels', {}), footName = (k) => FL[k] || k; Object.keys(INS.partners).forEach((k, i) => { const p = INS.partners[k]; p.traces.forEach((fl, j) => { addTrace(fl, FPCOL[i % FPCOL.length], footName(k) + ' · chain ' + p.chains[j], 0.22); }); const f0 = p.traces[0], mid = 3 * (f0.length / 6 | 0); if (f0 && f0.length > 6) V.addLabel(footName(k), { position: { x: f0[mid], y: f0[mid + 1] + 2, z: f0[mid + 2] }, fontSize: 10.5, fontColor: '#fff', backgroundColor: FPCOL[i % FPCOL.length], backgroundOpacity: 0.92, borderThickness: 0, inFront: true }); }); }
   if (NEW && INS.rest && INS.rest.traces && (st.show.ctx || hl.ctx)) {
     const segs = restSegments(X), col = C.isDark() ? '#8c94a9' : '#7f889c', lab = PF.t('view.ctx.label', null, 'removed regions');
@@ -1328,22 +1343,20 @@ function drawList() {
 }
 
 /* ---------------- designs BindCraft rejected: the filters they fail ---------------- */
-const STEM_LABEL = { pLDDT: 'pLDDT of the complex', pTM: 'pTM', i_pTM: 'interface pTM', i_pAE: 'interface PAE (divided by 31)', ShapeComplementarity: 'shape complementarity', n_InterfaceHbonds: 'interface hydrogen bonds', n_InterfaceUnsatHbonds: 'unsatisfied buried hydrogen bonds', Surface_Hydrophobicity: 'surface hydrophobicity', Binder_pLDDT: 'pLDDT of the binder alone', Binder_RMSD: 'binder RMSD', InterfaceAAs_K: 'lysines at the interface', InterfaceAAs_M: 'methionines at the interface' };
+const STEM_LABEL = { pLDDT: 'pLDDT of the complex', pTM: 'pTM', i_pTM: 'interface pTM', i_pAE: 'interface PAE (divided by 31)', iptm: 'interface pTM', min_ipae: 'minimum interface PAE', motif_ca_rmsd: 'motif CA RMSD', motif_allatom_rmsd: 'motif all-atom RMSD', complex_rmsd: 'backbone RMSD (design vs AF3)', has_clash: 'AF3 clash flag', ShapeComplementarity: 'shape complementarity', n_InterfaceHbonds: 'interface hydrogen bonds', n_InterfaceUnsatHbonds: 'unsatisfied buried hydrogen bonds', Surface_Hydrophobicity: 'surface hydrophobicity', Binder_pLDDT: 'pLDDT of the binder alone', Binder_RMSD: 'binder RMSD', InterfaceAAs_K: 'lysines at the interface', InterfaceAAs_M: 'methionines at the interface' };
 const fmtv = (v) => (v == null ? '–' : String(Math.round(v * 100) / 100));
 function failStems(X) { const out = []; (X.fail || []).forEach((f) => { if (out.indexOf(f.stem) < 0) out.push(f.stem); }); return out; }
 function failSummary(X) { return failStems(X).map((s) => { const f = X.fail.find((q) => q.stem === s); return s + ' ' + fmtv(f.value) + ' against ' + (f.op === '>=' ? '≥ ' : '≤ ') + fmtv(f.threshold); }).join('; '); }
-/* One failed filter, in words. Three cases, because they are three different claims:
-   an Average-column miss we can show the numbers for; a per-model miss BindCraft
-   recorded where the table's mean still passes, so there is no number to show; and
-   a numbered model of a BindCraft 1 run. The middle case is a BindCraft 2 campaign
-   judging a confidence filter on each validation model in turn, and writing only the
-   rounded mean to its table -- printing "is 0.69, the limit is at least 0.55" there
-   would read as a contradiction. */
+const isChainScope = (s) => typeof s === 'string' && /^[A-Za-z]$/.test(s);
+/* One failed filter, in words. Four cases: an Average-column miss; a per-model miss BindCraft
+   recorded where the table's mean still passes; a numbered model of a BindCraft 1 run; and a
+   per-chain miss (RFD4), scoped by chain letter. */
 function failWords(f) {
   const limit = ', the limit is ' + (f.op === '>=' ? 'at least ' : 'at most ') + fmtv(f.threshold);
   if (f.scope === 'Average') return 'averages ' + fmtv(f.value) + limit;
   if (f.measured === false || f.scope === 'Model')
     return 'failed in at least one model' + (C.has(f.value) ? ', though the table’s mean of ' + fmtv(f.value) + ' passes' : '') + limit;
+  if (isChainScope(f.scope)) return 'on chain ' + f.scope + ' is ' + fmtv(f.value) + limit;
   return 'in model ' + f.scope + ' is ' + fmtv(f.value) + limit;
 }
 
@@ -1351,7 +1364,10 @@ function rejectedFinding(X, push) {
   if (!NEW || X.status !== 'rejected') return;
   const stems = failStems(X), nm = X.nm || null;
   const parts = stems.map((s) => { const rows = X.fail.filter((f) => f.stem === s); return (STEM_LABEL[s] || s) + ' (' + s + ') ' + rows.map(failWords).join('; '); });
-  push({ id: 'rejected', sev: 'warn', title: 'BindCraft rejected this design' + (stems.length ? ': it fails ' + stems.length + ' filter' + (stems.length > 1 ? 's' : '') : ''), detail: (parts.length ? parts.join('. ') + '. ' : '') + (nm && nm.near ? 'This is a near miss: one filter, missed by at most ' + Math.round(100 * nm.worst_rel) + ' percent of its threshold. ' : '') + 'The checks below are the same as for an accepted design.', fix: 'A near miss is where a hard cut-off may be stricter than your use needs. Judge it by the metric that failed: one unsatisfied polar over the limit costs little, a binder predicted well below the pLDDT limit is a poor candidate.', hl: {} });
+  const run = (typeof runOf === 'function' ? runOf(X) : null) || {};
+  const userCut = run.filter_set && run.filter_set.source === 'user';
+  const who = userCut ? 'Import cutoffs rejected this design' : 'BindCraft rejected this design';
+  push({ id: 'rejected', sev: 'warn', title: who + (stems.length ? ': it fails ' + stems.length + ' filter' + (stems.length > 1 ? 's' : '') : ''), detail: (parts.length ? parts.join('. ') + '. ' : '') + (nm && nm.near ? 'This is a near miss: one filter, missed by at most ' + Math.round(100 * nm.worst_rel) + ' percent of its threshold. ' : '') + 'The checks below are the same as for an accepted design.', fix: 'A near miss is where a hard cut-off may be stricter than your use needs. Judge it by the metric that failed: one unsatisfied polar over the limit costs little, a binder predicted well below the pLDDT limit is a poor candidate.', hl: {} });
 }
 
 /* ---------------- target checks: the numbers behind each check and what would confirm or refute it ---------------- */

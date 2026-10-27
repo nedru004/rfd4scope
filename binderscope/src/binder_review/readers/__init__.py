@@ -25,6 +25,7 @@ class ReaderError(ValueError):
 _REGISTRY: list[tuple[str, str]] = [
     ("bindcraft1", "binder_review.readers.bindcraft1"),
     ("bindcraft2", "binder_review.readers.bindcraft2"),
+    ("rfd4", "binder_review.readers.rfd4"),
 ]
 
 

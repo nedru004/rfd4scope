@@ -92,9 +92,12 @@ def reference_ca_from_construct(path: str | os.PathLike, uniprot_offset: int) ->
 
 
 def design_footprint(structure_path: str, uniprot_offset: int, cutoff: float = model.CONTACT_CUTOFF,
-                     n_binder_chains: int = 1) -> list[int]:
+                     n_binder_chains: int = 1, load_kw: Optional[Mapping[str, Any]] = None) -> list[int]:
     """Contacted target residues of one design, UniProt numbers (heavy atoms within `cutoff`)."""
-    cx = S.load_complex(str(structure_path), n_binder_chains=n_binder_chains)
+    kw = dict(load_kw or {})
+    if "n_binder_chains" not in kw and "binder_chain" not in kw:
+        kw["n_binder_chains"] = n_binder_chains
+    cx = S.load_complex(str(structure_path), **kw)
     c = S.residue_contacts(cx.target, cx.binder, cutoff)
     return [int(n) + uniprot_offset for n in c.a_residues]
 
@@ -112,7 +115,10 @@ def collect_footprints(runs: Mapping[str, model.RunData], cutoff: float = model.
         info = RunInfo(rid, hotspots=run.hotspots_uniprot(), residues=set(run.target.uniprot_numbers()), label=run.label)
         for d in run.accepted() + run.rejected_with_structure():
             key = ids[d.key]
-            foot[key] = design_footprint(d.structure_path, off, cutoff, model.binder_chain_count(d))
+            foot[key] = design_footprint(
+                d.structure_path, off, cutoff, model.binder_chain_count(d),
+                load_kw=model.load_complex_kwargs(d),
+            )
             info.designs[key] = d.status
         infos[rid] = info
     return foot, infos
@@ -630,7 +636,12 @@ def design_failures(d: model.DesignRecord, rules: "Iterable[config.FilterRule] |
     names everything the design misses (an Average failure, measured). A stem is never listed twice.
     """
     fs = config.as_filter_set(rules)
-    recomputed = config.check_filters(d.metrics, d.models, d.interface_aas, fs.rules)
+    roles = model.design_chain_roles(d)
+    recomputed = config.check_filters(
+        d.metrics, d.models, d.interface_aas, fs.rules,
+        per_chain=getattr(d, "per_chain", None) or {},
+        chain_roles=roles or None,
+    )
     if not fs.from_campaign:
         return recomputed
     recorded = list(d.failed_filters)

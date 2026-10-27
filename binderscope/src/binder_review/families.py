@@ -300,7 +300,8 @@ def design_geometry(design: DesignRecord, cutoff: float = CONTACT_CUTOFF) -> Des
     """Load one design's structure. Contacts are heavy-atom pairs within `cutoff` (4.5 A, model.CONTACT_CUTOFF)."""
     if not design.structure_path:
         raise ValueError(f"{design.run_id}/{design.id}: no structure file")
-    cx = S.load_complex(design.structure_path, n_binder_chains=binder_chain_count(design))
+    from .model import load_complex_kwargs
+    cx = S.load_complex(design.structure_path, **load_complex_kwargs(design))
     ca, seq = _ca_trace(cx.binder)
     cont = S.residue_contacts(cx.target, cx.binder, cutoff)
     return DesignGeometry(design.run_id, design.id, ca, seq, tuple(int(n) for n in cont.a_residues), design.structure_model)

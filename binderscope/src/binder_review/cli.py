@@ -98,11 +98,32 @@ def _cmd_import(args: argparse.Namespace) -> int:
         return 2
     name = args.name or out.name
     partners = _partner_arg(args.partner_chains)
+    chain_roles = None
+    if getattr(args, "chain_role", None):
+        chain_roles = {}
+        for item in args.chain_role:
+            if "=" not in item:
+                print(f"binder-review import: --chain-role {item!r} needs CHAIN=ROLE", file=sys.stderr)
+                return 2
+            ch, role = item.split("=", 1)
+            chain_roles[ch.strip()] = role.strip().lower()
+    # Auto-pick the RFD4 profile when every run is RFD4 and the person left the default.
+    profile = args.profile
+    if profile == "default":
+        try:
+            from .readers import detect_reader
+            kinds = {getattr(detect_reader(Path(r.path)), "NAME", None) for r in runs}
+            if kinds == {"rfd4"}:
+                profile = "rfd4"
+        except Exception:
+            pass
     spec = P.ProjectSpec(name=name, runs=runs, target_pdb=Path(args.target_pdb), reference_cif=Path(args.reference_cif) if args.reference_cif else None,
-                         uniprot=args.uniprot, profile=args.profile, consurf=args.consurf, online=args.online, jobs=args.jobs,
+                         uniprot=args.uniprot, profile=profile, consurf=args.consurf, online=args.online, jobs=args.jobs,
                          use_cache=not args.no_cache, command=command_line(sys.argv[1:]), reference_id=args.reference_id,
                          reference_chain=None if args.reference_chain == "auto" else args.reference_chain, partner_chains=partners,
-                         assembly=args.assembly, placement=args.placement, context_hard=args.context_check)
+                         assembly=args.assembly, placement=args.placement, context_hard=args.context_check,
+                         cutoffs=list(args.cutoff) if getattr(args, "cutoff", None) else None,
+                         oracle=getattr(args, "oracle", None), chain_roles=chain_roles)
     log = P.Log(quiet=args.quiet)
     t0 = time.perf_counter()
     try:
@@ -394,8 +415,9 @@ def build_parser() -> argparse.ArgumentParser:
                     "context checks, interface analysis, families, modes, specificity), validate the blobs against docs/schema and write "
                     "the project folder (OUT/export). With --bundle the static bundle is written as well: one command from run folders to a "
                     "viewer that opens from disk.")
-    p_imp.add_argument("run_dirs", nargs="+", metavar="RUN_DIR", help="BindCraft run folders, as PATH or ID=PATH (the id defaults to run01 from a folder named like campaign_run01)")
-    p_imp.add_argument("--target-pdb", help="the structure that was given to BindCraft (numbering 1 to N); required")
+    p_imp.add_argument("run_dirs", nargs="+", metavar="RUN_DIR",
+                       help="run folders (BindCraft or RFdiffusion 4), as PATH or ID=PATH (the id defaults to run01 from a folder named like campaign_run01)")
+    p_imp.add_argument("--target-pdb", help="the structure that was given to the design tool (numbering 1 to N); required")
     p_imp.add_argument("--reference-cif", "--reference", dest="reference_cif",
                        help="full-length reference structure of the target (mmCIF or PDB). Optional: without it the construct is the frame, designs are "
                             "analysed as they are, and the checks that need the rest of the protein (other subunits, rest of the chain, cut ends, glycan "
@@ -419,6 +441,16 @@ def build_parser() -> argparse.ArgumentParser:
                        help="how each design is placed on the reference chain: interface (default: the superposition of the target is weighted around the "
                             "binder, so the epitope sits where it does on the reference even when other parts of the target moved), whole (every shared "
                             "residue counts the same) or core (only the residues a trimmed fit keeps)")
+    p_imp.add_argument("--cutoff", action="append", metavar="NAME=OP:VALUE", default=None,
+                       help="acceptance cutoff for an RFD4 (or similar) import, repeatable. NAME is a metric or alias "
+                            "(plddt, iptm, min_ipae, complex_rmsd, has_clash, …); OP is ge/le/>=/<=; VALUE is the threshold. "
+                            "NAME@CHAIN (for example iptm@C=ge:0.6) gates one target chain only. Defaults come from the RFD4 profile "
+                            "when no --cutoff is given")
+    p_imp.add_argument("--oracle", metavar="NAME", default=None,
+                       help="primary AF3 oracle namespace for an RFD4 run (default: oracle; some runs also have oracle_ppi)")
+    p_imp.add_argument("--chain-role", action="append", metavar="CHAIN=ROLE", default=None,
+                       help="target chain role for an RFD4 import, repeatable: require (must pass; default), ignore (scored, never gating) "
+                            "or avoid (must not engage). Example: --chain-role B=require --chain-role C=require")
     p_imp.add_argument("--name", help="project name (default: the name of the output folder)")
     p_imp.add_argument("--out", help="project folder for the analysis, its caches and the export (default work/project)")
     p_imp.add_argument("--project", dest="project", help=argparse.SUPPRESS)
@@ -426,7 +458,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_imp.add_argument("--label", action="append", metavar="ID=TEXT", help="display label of a run (default: the folder name)")
     p_imp.add_argument("--uniprot", metavar="ACCESSION", help="UniProt accession of the target (optional; default: target.uniprot of the profile). Without one no UniProt, "
                        "PDBe or AlphaFold record is read: no domain strip, topology, membrane plane or specificity panel")
-    p_imp.add_argument("--profile", default="default", help="built-in profile id (the only one is default: a neutral profile that names no target) or the path of a profile JSON (default: default)")
+    p_imp.add_argument("--profile", default="default",
+                       help="built-in profile id (default: a neutral BindCraft profile; rfd4: RFdiffusion 4) or the path of a profile JSON")
     p_imp.add_argument("--consurf", action="store_true", help="include the optional ConSurf-DB overlay (academic use, off by default)")
     p_imp.add_argument("--online", action="store_true", help="allow fetching missing public reference data by accession (default: cache only)")
     p_imp.add_argument("--jobs", type=int, help="worker processes (default: CPU count minus one, at most 8)")

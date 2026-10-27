@@ -466,7 +466,7 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError(400, "Give the project a name and choose its inputs.")
         runs_in = inputs.get("runs")
         if not isinstance(runs_in, list) or not runs_in:
-            raise ApiError(400, "Add at least one BindCraft run folder.")
+            raise ApiError(400, "Add at least one design run folder.")
         runs, seen = [], set()
         for r in runs_in:
             if not isinstance(r, dict):

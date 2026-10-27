@@ -53,7 +53,7 @@ def inspect_run(path: str) -> dict[str, Any]:
 
 
 def target_candidates(folder: Path, recorded_name: str | None, limit: int = 6) -> list[dict[str, Any]]:
-    """PDB files next to the run folder that may be the structure given to BindCraft; the one named in the settings file comes first."""
+    """PDB files next to the run folder that may be the target construct used for design; the one named in the settings file comes first."""
     seen: list[dict[str, Any]] = []
     for base in (folder, folder.parent):
         try:
@@ -95,7 +95,7 @@ def _ca_by_number(path: str, chain: str | None) -> dict[int, tuple[str, list[flo
 
 
 def fit_preview(construct: str, reference: str, chain: str) -> dict[str, Any]:
-    """How well the structure given to BindCraft fits a chain of the full-length reference: the same numbering offset vote and CA fits the build uses.
+    """How well the target construct fits a chain of the full-length reference: the same numbering offset vote and CA fits the build uses.
     Shown on the import page before building, so a wrong chain, another target or a very different conformation is seen at once."""
     import numpy as np
 

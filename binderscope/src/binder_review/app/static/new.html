@@ -18,20 +18,20 @@
 <main class="wrap">
   <div id="form">
     <h1>New project</h1>
-    <p class="lead">Choose your BindCraft runs and the target. Binderscope reads them where they are and never changes them.</p>
+    <p class="lead">Choose your design runs and the target. Binderscope reads BindCraft and RFdiffusion&nbsp;4 folders where they are and never changes them.</p>
     <div class="stack">
       <section class="card" aria-labelledby="h-runs">
-        <div class="row sp"><h3 id="h-runs"><span class="n">1</span>BindCraft runs</h3><button class="btn" id="addruns" type="button">Add run folders…</button></div>
-        <p class="why">The folder of each run: from BindCraft 1, the one holding the stats CSVs, the Accepted folder and the settings file; from BindCraft 2, the one holding 1_Trajectories, 2_Refolded, 3_Ranked and campaign_metadata.json. Add as many runs of the same target as you like.</p>
+        <div class="row sp"><h3 id="h-runs"><span class="n">1</span>Design runs</h3><button class="btn" id="addruns" type="button">Add run folders…</button></div>
+        <p class="why">The folder of each run. BindCraft&nbsp;1: stats CSVs, Accepted, and the settings file. BindCraft&nbsp;2: 1_Trajectories, 2_Refolded, 3_Ranked and campaign_metadata.json. RFdiffusion&nbsp;4: inference_metrics (with per_example_metrics.csv) plus the designed and refolded structures. Add as many runs of the same target as you like; Binderscope detects the tool from the folder layout.</p>
         <div id="runs"></div>
         <div class="row" style="margin-top:10px"><input type="text" id="runpath" placeholder="or paste a folder path" aria-label="Paste a run folder path" style="flex:1;min-width:200px"><button class="btn" id="runadd" type="button">Add</button></div>
       </section>
 
       <section class="card" aria-labelledby="h-target">
         <h3 id="h-target"><span class="n">2</span>The target</h3>
-        <p class="why">Two structure files: what you gave BindCraft, and the whole protein it belongs to. Binderscope uses the second to check each design against the part of the target BindCraft never saw.</p>
+        <p class="why">Two structure files: the construct the design tool used, and the whole protein it belongs to. Binderscope uses the second to check each design against the part of the target the run never saw.</p>
         <div class="field">
-          <span class="lbl">Structure you gave BindCraft</span>
+          <span class="lbl">Target construct used for design</span>
           <div class="pick"><button class="btn" id="pickt" type="button">Choose file…</button><span id="tinfo"></span></div>
           <div class="sugg" id="tsugg" hidden></div>
           <div class="drop" id="tdrop">or drop the file here</div>

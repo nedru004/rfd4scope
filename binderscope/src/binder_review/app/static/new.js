@@ -17,7 +17,7 @@
     c.push('<span class="chip">' + i.accepted + ' accepted</span><span class="chip">' + i.rejected + ' rejected</span><span class="chip">' + i.families + ' families</span>');
     if (i.hotspots && i.hotspots.length) c.push('<span class="chip">hotspots ' + esc(i.hotspots.join(', ')) + '</span>');
     if (i.binder_length) c.push('<span class="chip">binders ' + i.binder_length[0] + '–' + i.binder_length[1] + ' aa</span>');
-    if (!i.settings_found) c.push(i.hotspots && i.hotspots.length ? '<span class="chip" title="There is no settings file in the folder, so the hotspots were read from the result tables.">hotspots read from the tables</span>' : '<span class="chip warn" title="BindCraft writes the hotspots into a settings file next to the run. Without it Binderscope cannot say which hotspots a design touches.">no settings file: hotspots unknown</span>');
+    if (!i.settings_found) c.push(i.hotspots && i.hotspots.length ? '<span class="chip" title="There is no settings file in the folder, so the hotspots were read from the result tables or contig.">hotspots read from the tables</span>' : '<span class="chip warn" title="BindCraft writes hotspots into a settings file; RFdiffusion 4 may carry them in the contig. Without either, Binderscope cannot say which hotspots a design touches.">no settings file: hotspots unknown</span>');
     (i.warnings || []).slice(0, 1).forEach((w) => c.push('<span class="chip warn">' + esc(w).slice(0, 90) + '</span>'));
     return c.join('');
   }
@@ -67,7 +67,7 @@
   });
   $('#addruns').addEventListener('click', async () => {
     const last = S.runs.length ? dirOf(S.runs[S.runs.length - 1].path) : '';
-    try { const p = await BSA.choose({ kind: 'folder', multiple: true, prompt: 'Choose BindCraft run folders', start: last }); if (p) addRuns(p); } catch (e) { BSA.toast(e.message); }
+    try { const p = await BSA.choose({ kind: 'folder', multiple: true, prompt: 'Choose design run folders (BindCraft or RFdiffusion 4)', start: last }); if (p) addRuns(p); } catch (e) { BSA.toast(e.message); }
   });
   const addTyped = () => { const v = $('#runpath').value.trim(); if (v) { addRuns([v]); $('#runpath').value = ''; } };
   $('#runadd').addEventListener('click', addTyped);
@@ -104,7 +104,7 @@
     box.innerHTML = '<span class="filechip"><b title="' + esc(r.path) + '">' + esc(i.name) + '</b><span class="hint">' + i.format + ' · chains ' + esc(ch) + '</span></span>' + note + fitNote(i.fit);
     fillChains(); check();
   }
-  // how the structure given to BindCraft fits the chosen chain of the reference (the same numbering vote and CA fit the build uses)
+  // how the target construct fits the chosen chain of the reference (the same numbering vote and CA fit the build uses)
   const placeVal = () => ($('#placement') ? $('#placement').value : 'interface');
   const placeNote = () => placeVal() === 'interface' ? 'Each design is placed by a fit around its own interface.' : placeVal() === 'core' ? 'Each design is placed by a fit of the rigid core of the target.' : 'Each design is placed by a fit of the whole target.';
   function fitNote(f) {
@@ -138,7 +138,7 @@
   }
   $('#pickt').addEventListener('click', async () => {
     const start = S.runs.length ? dirOf(S.runs[0].path) : '';
-    try { const p = await BSA.choose({ kind: 'file', prompt: 'Choose the structure you gave BindCraft', start }); if (p) await setTarget(p[0]); } catch (e) { BSA.toast(e.message); }
+    try { const p = await BSA.choose({ kind: 'file', prompt: 'Choose the target construct used for design', start }); if (p) await setTarget(p[0]); } catch (e) { BSA.toast(e.message); }
   });
   $('#pickr').addEventListener('click', async () => {
     const start = S.runs.length ? dirOf(S.runs[0].path) : '';
@@ -172,7 +172,7 @@
     const good = S.runs.filter((r) => r.info);
     if (!S.runs.length) m.push('add a run folder'); else if (S.runs.some((r) => r.loading)) m.push('wait for the runs to be read'); else if (!good.length) m.push('add a run folder Binderscope can read');
     else if (S.runs.some((r) => r.error)) m.push('remove the run that could not be read');
-    if (!S.target || !S.target.info.ok) m.push('choose the structure you gave BindCraft');
+    if (!S.target || !S.target.info.ok) m.push('choose the target construct used for design');
     if (!S.reference || !S.reference.info.ok) m.push('choose the full-length reference');
     const ids = S.runs.map((r) => r.id); if (ids.some((x) => !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,30}$/.test(x))) m.push('give each run a short name (letters, digits, - _ .)'); else if (new Set(ids).size !== ids.length) m.push('give each run its own name');
     return m;

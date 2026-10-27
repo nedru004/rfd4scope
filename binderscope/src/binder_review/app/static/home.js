@@ -80,7 +80,7 @@
     if (act === 'delete') {
       const p = state.projects.find((x) => x.slug === slug); const dlg = $('#confirm');
       $('#ctitle').textContent = 'Delete “' + p.name + '”?';
-      $('#cbody').innerHTML = '<p>This removes the project folder with its analysis and review pages. Your BindCraft run folders are not touched. Decisions you saved in the review pages are kept by your browser, and you can rebuild the project any time.</p>';
+      $('#cbody').innerHTML = '<p>This removes the project folder with its analysis and review pages. Your design run folders are not touched. Decisions you saved in the review pages are kept by your browser, and you can rebuild the project any time.</p>';
       $('#cno').onclick = () => dlg.close();
       $('#cyes').onclick = async () => { dlg.close(); try { await BSA.post('projects/' + slug + '/delete'); BSA.toast('Project deleted.'); } catch (e) { BSA.toast(e.message); } load(); };
       dlg.showModal();

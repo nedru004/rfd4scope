@@ -59,7 +59,12 @@
               <input type="text" id="pcustom" placeholder="chain ids, for example B,C" hidden></div>
             <div class="field"><label for="placement">How designs are placed on the full-length protein</label>
               <select id="placement"><option value="interface">Fit around each design's interface (recommended)</option><option value="whole">Fit the whole target</option><option value="core">Fit the rigid core of the target</option></select>
-              <span class="hint">BindCraft predicts its own copy of the target, which differs a little from the reference. Fitting around the interface keeps the binder on the epitope; the whole-target fit can leave it 1 to 3 Å off where the model differs.</span></div>
+              <span class="hint">The design tool predicts its own copy of the target, which differs a little from the reference. Fitting around the interface keeps the binder on the epitope; the whole-target fit can leave it 1 to 3 Å off where the model differs.</span></div>
+            <div class="field" id="cutoffField">
+              <label for="cutoffs">Acceptance cutoffs (RFdiffusion 4)</label>
+              <textarea id="cutoffs" rows="3" placeholder="one per line, for example&#10;plddt=ge:0.80&#10;iptm=ge:0.50&#10;min_ipae=le:2.0&#10;iptm@C=ge:0.6"></textarea>
+              <span class="hint">Optional. Leave blank to use the RFD4 defaults (pLDDT ≥ 0.80, no clash, motif CA RMSD ≤ 1 Å, backbone RMSD ≤ 2.5 Å, and per target chain ipTM ≥ 0.5 and min iPAE ≤ 2 Å). Use NAME@CHAIN to override one chain.</span>
+            </div>
             <div class="field" style="margin-bottom:0"><span class="lbl">Profile file</span><div class="pick"><button class="btn" id="pickp" type="button">Choose file…</button><span id="pinfo" class="hint">none (the neutral default)</span></div></div>
           </div>
         </details>

@@ -196,8 +196,11 @@ def _source_kind(text: Optional[str]) -> str:
 
 
 def _tool_text(run: RunData) -> str:
-    """The tool as the pages name it: BindCraft with its major version ('BindCraft 1'), the same for every run of a tool whether or not
-    its settings file records the exact version (that stays in run.tool_version and the manifest)."""
+    """The tool as the pages name it: BindCraft with its major version ('BindCraft 1'), RFD4 as 'RFdiffusion 4', etc.
+    The exact version stamp stays in run.tool_version and the manifest."""
+    reader = (run.reader or "").lower()
+    if reader == "rfd4" or (run.tool_version or "").upper().startswith("RFD4"):
+        return "RFdiffusion 4"
     m = re.match(r"v?(\d+)", (run.tool_version or "").strip())
     return f"BindCraft {m.group(1)}" if m else "BindCraft 1"
 
@@ -211,30 +214,43 @@ def failure_rows(run: RunData) -> list[list[Any]]:
 
 def filter_rule_dict(rule: config.FilterRule) -> dict[str, Any]:
     """One entry of runs[].filters. A reconstructed BindCraft 1 default keeps exactly the shape of model.filter_rule_to_dict. A rule the
-    campaign recorded itself (provenance "campaign") also says where it was read (`source`), whether BindCraft counts it as mandatory,
-    whether BindCraft judges it on each validation model (`judged_per_model`) and the stem its values are stored under (`value_stem`)."""
+    campaign recorded itself (provenance "campaign") or the person chose at import (provenance "user") also says where it was read
+    (`source`), whether it is mandatory, whether BindCraft judges it on each validation model (`judged_per_model`) and the stem its
+    values are stored under (`value_stem`). User rules also carry ``per_chain`` / ``chains``."""
     out = model.filter_rule_to_dict(rule)
-    if rule.from_campaign:
+    if rule.from_campaign or rule.from_user:
         out["metric"] = model.page_metric(rule.value_stem)
         out.update({"source": rule.source, "mandatory": rule.mandatory, "judged_per_model": rule.judged_per_model,
                     "value_stem": rule.value_stem})
+    if rule.from_user:
+        out["per_chain"] = bool(rule.per_chain)
+        if rule.chains:
+            out["chains"] = list(rule.chains)
     return out
 
 
 def filter_set_dict(run: RunData, fs: config.FilterSet) -> dict[str, Any]:
-    """runs[].filter_set, written only for a run judged by the thresholds it recorded itself (a run on BindCraft 1's reconstructed
-    defaults has no such key: its rules say "counter-verified", "bounded" or "memory", and no key means exactly that)."""
+    """runs[].filter_set, written for a run judged by thresholds it recorded (campaign) or the person chose at import (user).
+    A run on BindCraft 1's reconstructed defaults has no such key."""
+    if fs.from_user:
+        note = ("These are the thresholds chosen at import for this run, re-evaluated from the metrics. "
+                "RFD4's own motif_scaffold.pass is recorded beside them on each design, never merged into them."
+                + (f" {len(fs.unevaluated)} cutoff{'s' if len(fs.unevaluated) != 1 else ''} name metrics this run does not carry "
+                   f"({', '.join(u.name for u in fs.unevaluated)}) and stay unevaluated."
+                   if fs.unevaluated else ""))
+    else:
+        note = ("These are the thresholds this campaign recorded in its own metadata, not BindCraft 1's reconstructed defaults. "
+                "They are screens, not verdicts: a design BindCraft rejected stays rejected, and where its CSV values pass a "
+                "threshold that BindCraft judged on each validation model the rejection still stands."
+                + (f" {len(fs.unevaluated)} recorded threshold{'s' if len(fs.unevaluated) != 1 else ''} on metrics Binderscope does not carry "
+                   f"({', '.join(u.name for u in fs.unevaluated)}) cannot be re-checked here; BindCraft's own verdict covers {'them' if len(fs.unevaluated) != 1 else 'it'}."
+                   if fs.unevaluated else ""))
     return {
         "source": fs.source, "label": fs.label, "filters_name": run.settings.filters_name, "n_rules": len(fs.rules),
         "unevaluated": [{"name": u.name, "op": u.op, "threshold": u.threshold, "mandatory": u.mandatory, "source": u.source,
                          "reason": u.reason} for u in fs.unevaluated],
         "unlimited": list(fs.unlimited),
-        "note": ("These are the thresholds this campaign recorded in its own metadata, not BindCraft 1's reconstructed defaults. "
-                 "They are screens, not verdicts: a design BindCraft rejected stays rejected, and where its CSV values pass a "
-                 "threshold that BindCraft judged on each validation model the rejection still stands."
-                 + (f" {len(fs.unevaluated)} recorded threshold{'s' if len(fs.unevaluated) != 1 else ''} on metrics Binderscope does not carry "
-                    f"({', '.join(u.name for u in fs.unevaluated)}) cannot be re-checked here; BindCraft's own verdict covers {'them' if len(fs.unevaluated) != 1 else 'it'}."
-                    if fs.unevaluated else "")),
+        "note": note,
     }
 
 
@@ -242,7 +258,7 @@ def project_filter_rules(project: Project) -> list[dict[str, Any]]:
     """thresholds.filters of the manifest. For a project whose runs are all judged by the default filters it is the default list, as it
     always was. Otherwise each run contributes its own rules, every entry tagged with its run."""
     sets = {rid: config.filters_for_run(run) for rid, run in project.runs.items()}
-    if not any(fs.from_campaign for fs in sets.values()):
+    if not any(fs.from_campaign or fs.from_user for fs in sets.values()):
         return [model.filter_rule_to_dict(r) for r in config.DEFAULT_FILTERS]
     return [{**filter_rule_dict(r), "run": rid} for rid, fs in sets.items() for r in fs.rules]
 
@@ -298,7 +314,9 @@ def run_item(project: Project, rid: str, para: Optional[tuple[Optional[paratope.
         "sources": {"hotspots": _source_kind(st.hotspot_source), "length_range": _source_kind(st.length_source),
                     "final_designs_target": _source_kind(st.final_designs_target_source)},
     }
-    funnel = [{"key": r["field"], "label": r["label"], "n": r["value"], "status": r["status"], "note": r["note"]}
+    funnel_labels = (run.annotations or {}).get("funnel_labels") or {}
+    funnel = [{"key": r["field"], "label": funnel_labels.get(r["field"], r["label"]), "n": r["value"],
+               "status": r["status"], "note": r["note"]}
               for r in fn.stage_rows()]
     fset = config.filters_for_run(run)
     item = {
@@ -309,7 +327,7 @@ def run_item(project: Project, rid: str, para: Optional[tuple[Optional[paratope.
         "settings": settings,
         "target": frame.run_blocks([rid])[rid],
         "filters": [filter_rule_dict(r) for r in fset.rules],
-        **({"filter_set": filter_set_dict(run, fset)} if fset.from_campaign else {}),
+        **({"filter_set": filter_set_dict(run, fset)} if (fset.from_campaign or fset.from_user) else {}),
         "funnel": funnel, "failure": failure_rows(run),
         "n_traj": fn.trajectories_attempted, "n_traj_pass": fn.trajectory_rows, "n_scored": fn.mpnn_rows,
         "n_accepted": fn.accepted_designs,
@@ -327,7 +345,12 @@ def run_item(project: Project, rid: str, para: Optional[tuple[Optional[paratope.
 
 
 def _filter_notes(fs: config.FilterSet) -> list[str]:
-    """One note for a run judged by the thresholds it recorded itself: which claim the filter list on the pages makes."""
+    """One note for a run judged by thresholds it recorded or the person chose at import."""
+    if fs.from_user:
+        skipped = (f"; {len(fs.unevaluated)} cutoff{'s' if len(fs.unevaluated) != 1 else ''} name metrics this run does not carry "
+                   f"({', '.join(u.name for u in fs.unevaluated)})" if fs.unevaluated else "")
+        return [f"Filters: this run is judged by the {len(fs.rules)} cutoffs chosen at import{skipped}. "
+                "RFD4's own motif_scaffold.pass is kept beside them, never as the sole gate."]
     if not fs.from_campaign:
         return []
     skipped = (f"; {len(fs.unevaluated)} recorded threshold{'s' if len(fs.unevaluated) != 1 else ''} on metrics Binderscope does not carry "
@@ -374,6 +397,59 @@ def _identity_rf() -> list[float]:
     return [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]
 
 
+def _rf_flat(R: np.ndarray, t: np.ndarray) -> list[float]:
+    return [round(float(x), 6) for x in list(R.reshape(-1)) + list(t.reshape(-1))]
+
+
+def _design_rf(d: DesignRecord, pose: Mapping[str, Any]) -> tuple[list[float], bool]:
+    """Rigid transform that maps the analysed binder CA (refold) onto the generated design CA.
+
+    Returns ``(rf, flip)``. ``rf`` is identity when there is no twin generated structure. ``flip`` is True when the
+    complex RMSD is large enough that the board should mark a pose disagreement (same 2.5 Å cut the pages use).
+    The analysed structure is the AF3 refold; the ghost is the generated design after the same placement.
+    """
+    gen = (d.extras or {}).get("designed_structure_path")
+    if not gen or not d.structure_path or not Path(gen).is_file():
+        return _identity_rf(), False
+    try:
+        kw = model.load_complex_kwargs(d)
+        cx_ref = S.load_complex(d.structure_path, **kw)
+        cx_gen = S.load_complex(str(gen), **kw)
+        # Place both with the pose transform (computed from the refold onto the reference).
+        R = np.asarray(pose["placement"]["R"], dtype=float).reshape(3, 3)
+        t = np.asarray(pose["placement"]["t"], dtype=float)
+        ca_ref = (cx_ref.binder.ca_xyz() @ R.T) + t
+        ca_gen = (cx_gen.binder.ca_xyz() @ R.T) + t
+        if len(ca_ref) < 3 or len(ca_ref) != len(ca_gen) or np.isnan(ca_ref).any() or np.isnan(ca_gen).any():
+            return _identity_rf(), False
+        Rg, tg, _rmsd = S.kabsch(ca_ref, ca_gen)
+        rms = d.metrics.get("complex_rmsd")
+        flip = bool(rms is not None and rms > 2.5)
+        return _rf_flat(Rg, tg), flip
+    except Exception:
+        return _identity_rf(), False
+
+
+def _design_models(d: DesignRecord, m: Mapping[str, Any], run: RunData) -> list[dict[str, Any]]:
+    """design.models / inspect poses: primary oracle, then any secondary RFD4 oracle as an extra entry."""
+    if run.reader == "rfd4":
+        primary = (d.extras or {}).get("oracle") or "oracle"
+        label = "AF3" if primary == "oracle" else f"AF3 ({primary})"
+        out = [{"model": label, "ipsae": None, "iptm": m.get("iptm"), "rmsd": m.get("complex_rmsd")}]
+        for ns, blob in ((d.extras or {}).get("oracles") or {}).items():
+            if ns == primary:
+                continue
+            om = (blob or {}).get("metrics") or {}
+            out.append({
+                "model": f"AF3 ({ns})",
+                "ipsae": None,
+                "iptm": om.get("i_pTM"),
+                "rmsd": (d.metrics or {}).get("complex_rmsd"),
+            })
+        return out
+    return [{"model": "AF2 (BindCraft)", "ipsae": None, "iptm": m.get("iptm"), "rmsd": m.get("hotspot_rmsd")}]
+
+
 def _terminus_env(project: Project, rid: str, pose: Mapping[str, Any]):
     """How close points of a design's own frame come to what lies outside its construct, as the target frame sees it: the other subunits, the
     rest of the chain and the glycans. The placed pose is what makes that question answerable, so the points are carried onto the reference
@@ -396,7 +472,7 @@ def _terminus_block(project: Project, rid: str, d: DesignRecord, a: Any, pose: M
     """designs[].term and inspect.designs[].term (docs/termini.md): which end can carry a tag, and what it would cost."""
     if not fmt.applies:
         return termini.assess(a, None, None, fmt)
-    cx = S.load_complex(d.structure_path, n_binder_chains=model.binder_chain_count(d))
+    cx = S.load_complex(d.structure_path, **model.load_complex_kwargs(d))
     block = termini.assess(a, cx.binder, cx.target, fmt, _terminus_env(project, rid, pose))
     # the exit directions are in the design's own frame; the inspector draws them on the placed binder
     R = np.asarray(pose["placement"]["R"], dtype=float).reshape(3, 3)
@@ -426,7 +502,8 @@ def _metrics(d: DesignRecord, a: Any, pose: Mapping[str, Any], run: RunData, epi
     m: dict[str, Any] = {
         "plddt": M.get("pLDDT"), "ptm": M.get("pTM"), "iptm": M.get("i_pTM"), "iptm_b": M.get("i_pTM"),
         "ipae_norm": ipae, "ipae_mean": _r(ipae * 31, 1) if ipae is not None else None,
-        "min_ipae": None, "ipsae": None, "ipsae_max": None, "complex_rmsd": None,
+        "min_ipae": M.get("min_ipae"), "ipsae": None, "ipsae_max": None,
+        "complex_rmsd": M.get("complex_rmsd"),
         "binder_rmsd": M.get("Binder_RMSD"), "hotspot_rmsd": M.get("Hotspot_RMSD"), "target_rmsd": M.get("Target_RMSD"),
         "dsasa": _r(a.dsasa, 1), "sc": M.get("ShapeComplementarity"), "dg": M.get("dG"),
         "n_hbonds": int(a.n_hbonds), "n_salt": int(a.n_salt), "n_unsat": int(a.n_unsat),
@@ -471,6 +548,14 @@ def _src(d: DesignRecord, run: RunData, names: Optional[Mapping[str, str]] = Non
     }
 
 
+def _prov_csv(d: DesignRecord, run: RunData) -> str:
+    """Which metrics table the design came from, named for the reader."""
+    if run.reader == "rfd4":
+        return Path(next((f.path for f in run.files if f.role == "csv" and "per_example_metrics" in Path(f.path).name),
+                         "per_example_metrics.csv")).name
+    return "final_design_stats.csv" if d.status == "accepted" else "mpnn_design_stats.csv"
+
+
 def _prov(d: DesignRecord, run: RunData, pose: Optional[Mapping[str, Any]] = None) -> dict[str, Any]:
     rel = None
     if d.structure_path:
@@ -482,7 +567,7 @@ def _prov(d: DesignRecord, run: RunData, pose: Optional[Mapping[str, Any]] = Non
     out = {
         "run": run.run_id, "binder_name": d.binder_name, "backbone": d.backbone_id, "length": d.length, "seed": d.seed,
         "mpnn": d.mpnn_index, "protocol": d.protocol, "model": d.structure_model, "model_file": rel, "rank": d.rank,
-        "csv": "final_design_stats.csv" if d.status == "accepted" else "mpnn_design_stats.csv",
+        "csv": _prov_csv(d, run),
         "design_time_s": d.design_time_s, "notes": d.notes, "structure": "present" if d.structure_path else "missing",
         "marked": bool(d.xlsx_marked),
     }
@@ -543,19 +628,24 @@ def _design_records(project: Project, profile: dict[str, Any], mismatches: list[
             m = _metrics(d, a, pose, run, epi, tc)
             sc = labels.get(pid) if d.status == "accepted" else (rej_fold.get(pid) or {}).get("label", "unclustered")
             asg = assign.get(pid) or {}
+            rf, flip = _design_rf(d, pose)
+            src = _src(d, run, names)
+            if d.per_chain:
+                src["per_chain"] = {c: {s: v for s, v in vals.items() if v is not None}
+                                    for c, vals in sorted(d.per_chain.items())}
             rec: dict[str, Any] = {
                 "id": pid, "name": d.id, "run": rid, "status": d.status, "rank": d.rank, "bb": d.backbone_id, "fam": d.backbone_id,
                 "s": d.mpnn_index if d.mpnn_index is not None else 1, "seed": d.seed, "traj": bb.traj if bb else 0,
                 "sc": sc or "unclustered", "site": asg.get("site", "A1"), "mode": asg["mode"], "len": d.length, "seq": d.sequence,
-                "flip": False, "ca": [_r(x, 1) for x in pose["ca"]], "rf": _identity_rf(),
+                "flip": flip, "ca": [_r(x, 1) for x in pose["ca"]], "rf": rf,
                 "view": pose["view"], "vc": [_r(x, 1) for x in pose["ic"]], "emb": [_r(x, 4) for x in asg["emb"]],
                 "tc": tc, "bc": [int(b) - 1 for b in a.bc], "nc": int(a.nc), "hot": hot, "hot_of": len(hs), "m": m,
                 "glycan": {k: _r(v, 1) for k, v in pose["glycan"].items()},
-                "models": [{"model": "AF2 (BindCraft)", "ipsae": None, "iptm": m["iptm"], "rmsd": m["hotspot_rmsd"]}],
+                "models": _design_models(d, m, run),
                 "liab": liabilities.to_campaign(a.liab),
                 "inspect": pid if inspected[key] else None,
                 "pl": [int(round(x)) if x is not None else 0 for x in a.plddt_res],
-                "prov": _prov(d, run, pose), "src": _src(d, run, names),
+                "prov": _prov(d, run, pose), "src": src,
                 "fail": [] if d.status == "accepted" else (rec_fail["fail"] if rec_fail else []),
             }
             if d.status == "accepted":
@@ -566,6 +656,11 @@ def _design_records(project: Project, profile: dict[str, Any], mismatches: list[
                 rec["para"] = para_blobs[d.id]
             if inspected[key]:      # the designs a person can reach from the board or the inspector; the rest of the rejected designs carry none, not an empty one
                 rec["term"] = clean(_terminus_block(project, rid, d, a, pose, fmt))
+            if getattr(a, "per_chain", None):
+                rec["per_chain"] = {c: dict(v) for c, v in a.per_chain.items()}
+            elif d.per_chain:
+                rec["per_chain"] = {c: {s: v for s, v in vals.items() if v is not None}
+                                    for c, vals in sorted(d.per_chain.items())}
             out.append(rec)
     return out, inspected
 
@@ -730,7 +825,7 @@ def _inspector_designs(project: Project, profile: dict[str, Any], camp_designs: 
             pid = pids[key]
             rec = by_pid[pid]
             pose, a = project.poses[key], project.analyses[key]
-            cx = S.load_complex(d.structure_path, n_binder_chains=model.binder_chain_count(d))
+            cx = S.load_complex(d.structure_path, **model.load_complex_kwargs(d))
             R = np.asarray(pose["placement"]["R"], dtype=float).reshape(3, 3)
             t = np.asarray(pose["placement"]["t"], dtype=float)
             placed_b, placed_t = cx.binder.transformed(R, t), cx.target.transformed(R, t)
@@ -774,10 +869,10 @@ def _inspector_designs(project: Project, profile: dict[str, Any], camp_designs: 
                 "nterm_d": m["nterm_d"], "cterm_d": m["cterm_d"],
                 "mem_margin": _r(-m["mem_excess"], 1) if m["mem_excess"] is not None else None,
                 "glycan": dict(rec["glycan"]), "pae": None, "pae_n": None,
-                "poses": [{"model": "AF2 (BindCraft)", "ipsae": None, "iptm": m["iptm"], "rmsd": m["hotspot_rmsd"],
-                           "R": [1, 0, 0, 0, 1, 0, 0, 0, 1], "t": [0, 0, 0]}],
+                "poses": [{**entry, "R": [1, 0, 0, 0, 1, 0, 0, 0, 1], "t": [0, 0, 0]}
+                          for entry in _design_models(d, m, run)],
                 "seeds": [], "sibs": _sibs(project, rid, d), "metrics": {**m, "length": d.length},
-                "liab": liabilities.to_inspector(a.liab), "flip": False, "center": [_r(x, 2) for x in pose["ic"]],
+                "liab": liabilities.to_inspector(a.liab), "flip": bool(rec.get("flip")), "center": [_r(x, 2) for x in pose["ic"]],
                 "ctx": ctx, "octx": octx,
             }
             # the filters a rejected design fails (copy of the campaign record): the inspector names them without loading the campaign blob
@@ -797,6 +892,12 @@ def _inspector_designs(project: Project, profile: dict[str, Any], camp_designs: 
                 ins[tag]["para"] = rec["para"]
             if rec.get("term"):
                 ins[tag]["term"] = rec["term"]
+            if rec.get("per_chain"):
+                ins[tag]["per_chain"] = rec["per_chain"]
+            # Motif segments on the designed chain (RFD4 contig), for colouring the graft.
+            motif = ((run.annotations or {}).get("scaffold") or {}).get("motif_segments")
+            if motif:
+                ins[tag]["motif"] = list(motif)
             structures[structure_filename(pid)] = _pdb_complex(d, rid, pid, a.ss, seq, placed_t, placed_b, off, pose, frame)
             row = (list(runs).index(rid), d.rank if d.rank is not None else 10 ** 6, d.id)
             if d.status == "accepted":
@@ -968,7 +1069,8 @@ def build_profile(project: Project, campaign_parts: Mapping[str, Any], warnings:
         "rest_ctx": have("rest_min") and bool(((campaign_parts.get("rest") or target.get("rest")) or {}).get("traces")),
         "flag_region": False, "footprints": False, "has_pae": False,
         "has_traj": any(d["traj"] > 0 for d in designs), "traj_total": all(r["n_traj"] is not None for r in runs),
-        "has_fold": bool(fold), "families": any(n > 1 for n in bbs.values()), "has_boltz": False, "models": False,
+        "has_fold": bool(fold), "families": any(n > 1 for n in bbs.values()), "has_boltz": False,
+        "models": any(len(d.get("models") or []) > 1 for d in designs),
         "has_seeds": False, "ddg_scan": False, "species_panel": bool(homolog.get("orth")), "paralog_panel": bool(homolog.get("par")),
         "decoy_cofold": False, "consurf": False, "glycan": bool(target["glycan"]), "membrane": have("mem_excess"),
         "multi_run": len(runs) > 1, "rejected": any(d["status"] == "rejected" for d in designs), "reviews": True,
@@ -1859,9 +1961,19 @@ def _annotations(run: RunData) -> dict[str, Any]:
         out["note_files"] = [{"file": Path(n["path"]).name, "ids": n.get("ids", [])} for n in ann["note_files"]]
     sc = ann.get("scaffold")
     if sc and sc.get("scaffold_edits"):
-        out["scaffold"] = {"file": Path(sc["scaffold"]).name if sc.get("scaffold") else None, "scaffold_edits": sc["scaffold_edits"],
-                           "retained_fraction": {"threshold": sc.get("threshold"), "mandatory": sc.get("mandatory")},
-                           "meaning": "the scaffold positions the campaign was allowed to change; the paratope analysis divides the scaffold by it"}
+        kind = sc.get("kind") or "scaffold"
+        if kind == "motif":
+            out["motif"] = {
+                "segments": list(sc.get("motif_segments") or []),
+                "scaffold_edits": sc["scaffold_edits"],
+                "file": Path(sc["scaffold"]).name if sc.get("scaffold") else None,
+                "source": sc.get("source") or "rfd4.contig",
+                "meaning": "fixed motif stretches grafted onto the designed chain (from the RFD4 contig)",
+            }
+        else:
+            out["scaffold"] = {"file": Path(sc["scaffold"]).name if sc.get("scaffold") else None, "scaffold_edits": sc["scaffold_edits"],
+                               "retained_fraction": {"threshold": sc.get("threshold"), "mandatory": sc.get("mandatory")},
+                               "meaning": "the scaffold positions the campaign was allowed to change; the paratope analysis divides the scaffold by it"}
     return out
 
 

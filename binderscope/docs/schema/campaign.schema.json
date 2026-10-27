@@ -261,7 +261,7 @@
         },
         "olig": {
           "type": "object",
-          "description": "Partner-subunit (oligomer) context. buried: reference-chain residues buried by the partner(s) in the assembly, residue (string) -> buried area in A^2. neigh: partner CA traces, chain key -> flat xyz (the inspector blob carries the copy the pages draw).",
+          "description": "Partner-subunit (oligomer) context. buried: reference-chain residues buried by the partner(s) in the assembly, residue (string) -> buried area in A^2. neigh: partner CA traces, chain key -> flat xyz (the inspector blob carries the copy the pages draw). atoms/tracks: optional partner heavy atoms and per-residue ss/rsa/sasa (RFD4 multi-chain target), with show_default true when the olig layer should start on.",
           "properties": {
             "buried": {
               "type": "object",
@@ -274,6 +274,24 @@
               "additionalProperties": {
                 "$ref": "common.schema.json#/$defs/flat_xyz"
               }
+            },
+            "atoms": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object"
+              },
+              "description": "Partner heavy atoms per chain: {xyz, name, element, resname, resnum}."
+            },
+            "tracks": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "object"
+              },
+              "description": "Per-residue tracks per partner chain: {resi, ss, sasa, rsa}."
+            },
+            "show_default": {
+              "type": "boolean",
+              "description": "When true the inspector starts with the olig / partner layer on."
             },
             "chains": {
               "$ref": "common.schema.json#/$defs/string_list",
@@ -686,7 +704,7 @@
               },
               "provenance": {
                 "type": "string",
-                "description": "counter-verified, bounded or memory: a reconstruction of BindCraft 1's default threshold, and how well the data support it (binder_review.config). campaign: the threshold the run recorded itself (BindCraft 2, campaign_metadata.json), which also carries source, mandatory, judged_per_model and value_stem."
+                "description": "counter-verified, bounded or memory: a reconstruction of BindCraft 1's default threshold, and how well the data support it (binder_review.config). campaign: the threshold the run recorded itself (BindCraft 2, campaign_metadata.json), which also carries source, mandatory, judged_per_model and value_stem. user: a cutoff the person chose at import (RFD4), which also carries source, per_chain and optional chains."
               },
               "note": {
                 "type": "string"
@@ -717,7 +735,7 @@
         },
         "filter_set": {
           "type": "object",
-          "description": "Only for a run judged by the thresholds it recorded itself (BindCraft 2): source (campaign), n_rules, unevaluated (recorded thresholds on metrics Binderscope does not carry or that no design carries: name, op, threshold, mandatory, source, reason), unlimited (names recorded with an infinite threshold: no limit, no rule) and a note. A run on BindCraft 1's reconstructed defaults has no filter_set.",
+          "description": "For a run judged by the thresholds it recorded itself (BindCraft 2, source campaign) or the person chose at import (RFD4, source user): n_rules, unevaluated, unlimited and a note. A run on BindCraft 1's reconstructed defaults has no filter_set.",
           "additionalProperties": true
         },
         "funnel": {

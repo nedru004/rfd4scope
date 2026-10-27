@@ -91,6 +91,12 @@ def import_command(inputs: dict[str, Any], d: Path, name: str, no_cache: bool = 
         cmd.append("--consurf")
     if inputs.get("placement") in ("whole", "core"):             # "interface" is the command's default
         cmd += ["--placement", inputs["placement"]]
+    for c in inputs.get("cutoffs") or []:
+        cmd += ["--cutoff", str(c)]
+    if inputs.get("oracle"):
+        cmd += ["--oracle", str(inputs["oracle"])]
+    for item in inputs.get("chain_roles") or []:
+        cmd += ["--chain-role", str(item)]
     cmd += ["--name", name, "--out", str(d / "work"), "--bundle", str(d / "bundle")]
     if no_cache:
         cmd.append("--no-cache")

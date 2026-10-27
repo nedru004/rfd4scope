@@ -92,6 +92,7 @@ work/my-target/
 | `readers/__init__.py` | reader registry (`register_reader`, `available_readers`, `detect_reader`, `get_reader`) |
 | `readers/bindcraft1.py` | BindCraft 1 reader |
 | `readers/bindcraft2.py` | BindCraft 2 reader. Verified against a de novo (`binder`) campaign of v1.0.3; any other campaign is read on the same assumptions, keeps `experimental = True` and carries a warning that names the reason ([bindcraft2_reader.md](bindcraft2_reader.md)) |
+| `readers/rfd4.py` | RFdiffusion 4 reader. Reads `inference_metrics/per_example_metrics*.csv`, AF3 oracle scores, contig motif and C_HOT hotspots. Acceptance is user cutoffs applied per required target chain; RFD4's own `motif_scaffold.pass` is kept beside them. Experimental: measured against the runs under `rfd4/out`, no published version stamp ([rfd4_reader.md](rfd4_reader.md)) |
 | `structure.py` | parsing, SASA, contacts, secondary structure, hydrogen bonds, superposition ([structure_api.md](structure_api.md)) |
 | `refdata.py` | offline-first cache of public reference records ([reference_data.md](reference_data.md)) |
 | `target_frame.py` | numbering map, per-run targets, other subunits, glycans, cut ends, placement, context checks ([target_frame.md](target_frame.md)) |

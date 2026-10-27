@@ -38,7 +38,7 @@ from . import __version__, config, families, interface, model, modes, specificit
 from . import refdata as rd
 from . import structure as S
 from . import target_frame as TF
-from .model import DesignRecord, RunData, binder_chain_count
+from .model import DesignRecord, RunData, binder_chain_count, load_complex_kwargs
 from .readers import detect_reader, get_reader
 
 PIPELINE_VERSION = 1          # bump when a stage's output changes shape; part of every cache key
@@ -46,7 +46,7 @@ POSE_VERSION = 2
 #: How designs are placed on the reference chain (ProjectSpec.placement, ``--placement``) and the fit of target_frame each one stands for.
 PLACEMENTS = {"interface": "interface", "whole": "all", "core": "core"}
 DEFAULT_PROFILE = "default"
-BUILTIN_PROFILES = ("default",)
+BUILTIN_PROFILES = ("default", "rfd4")
 
 ProjectKey = tuple[str, str]  # (run id, design id as the run wrote it)
 
@@ -203,6 +203,9 @@ class ProjectSpec:
     assembly: Optional[str] = None      # the assembly of the reference the subunits come from; None = the first one that holds the target chain
     context_hard: Optional[str] = None  # auto, hard or advisory: whether the Context check decides a verdict (None: the profile's checks.context.hard, else auto)
     placement: str = "interface"        # how designs are placed on the reference chain: interface (weighted around the binder), whole (every shared CA) or core
+    cutoffs: Optional[Sequence[str]] = None   # --cutoff NAME=OP:VALUE strings for RFD4 (and similar user-cutoff readers)
+    oracle: Optional[str] = None              # primary AF3 oracle namespace for RFD4 (default: oracle)
+    chain_roles: Optional[Mapping[str, str]] = None  # target chain letter -> require|ignore|avoid
 
 
 @dataclass
@@ -298,6 +301,20 @@ def read_runs(spec: ProjectSpec, log: Optional[Log] = None) -> dict[str, RunData
         opts: dict[str, Any] = {}
         if reader.NAME == "bindcraft1":
             opts["construct_path"] = spec.target_pdb
+        if reader.NAME == "rfd4":
+            opts["construct_path"] = spec.target_pdb
+            if spec.cutoffs:
+                opts["cutoff_args"] = list(spec.cutoffs)
+            if spec.oracle:
+                opts["oracle"] = spec.oracle
+            if spec.chain_roles:
+                opts["chain_roles"] = dict(spec.chain_roles)
+            # Prefer the RFD4 profile when the person left the default BindCraft one.
+            if isinstance(spec.profile, str) and spec.profile == DEFAULT_PROFILE:
+                # Auto-select only when the caller did not name a profile; read_runs does not mutate
+                # ProjectSpec.profile (export still uses what run_pipeline loaded). The reader records
+                # the modality; the CLI / import page set --profile rfd4 when they detect RFD4.
+                pass
         t = time.perf_counter()
         run = reader.read_run(path, rs.run_id, label=rs.label, settings_path=rs.settings, **opts)
         log(f"  {rs.run_id}: {len(run.accepted())} accepted, {len(run.rejected())} rejected rows "
@@ -474,12 +491,14 @@ def canonical_view(tgt_xyz: np.ndarray, bnd_xyz: np.ndarray, cutoff: float = mod
 
 
 def pose_one(frame: TF.TargetFrame, cx: S.Complex, run_id: str, design_id: str, status: str, rank: Optional[int],
-             model_k: Optional[int]) -> dict[str, Any]:
+             model_k: Optional[int], chain_roles: Optional[Mapping[str, str]] = None) -> dict[str, Any]:
     """Placement on the reference chain frame, the context checks and the thumbnail view of one loaded design.
 
     Everything is in the reference frame and UniProt numbered; the record is small plain JSON (docs/export.md).
-    ``metrics`` holds full-precision values, the exporter rounds."""
-    chk = TF.check_design(frame, cx, run_id, design_id=design_id, status=status, rank=rank, model_k=model_k)
+    ``metrics`` holds full-precision values, the exporter rounds. ``chain_roles`` (RFD4) turns off the partner
+    Context penalty against intended target chains."""
+    chk = TF.check_design(frame, cx, run_id, design_id=design_id, status=status, rank=rank, model_k=model_k,
+                          chain_roles=chain_roles)
     pl, res = chk.placement, chk.context
     placed_b = pl.apply(cx.binder)
     placed_t = pl.apply(cx.target)
@@ -523,15 +542,20 @@ def _frame_for(frame_dir: str, fkey: str = "") -> TF.TargetFrame:
 
 
 def _pose_worker(args: tuple) -> tuple[str, dict[str, Any]]:
-    frame_dir, run_id, did, path, status, rank, model_k, fkey, n_chains = args
-    cx = S.load_complex(path, n_binder_chains=n_chains)
-    return did, pose_one(_frame_for(frame_dir, fkey), cx, run_id, did, status, rank, model_k)
+    frame_dir, run_id, did, path, status, rank, model_k, fkey, load_kw, chain_roles = args
+    cx = S.load_complex(path, **(load_kw or {"n_binder_chains": 1}))
+    return did, pose_one(_frame_for(frame_dir, fkey), cx, run_id, did, status, rank, model_k,
+                         chain_roles=chain_roles)
 
 
-def pose_key(structure_sha: str, fkey: str, n_binder_chains: int = 1) -> str:
-    # The chain count is in the key: the same file read with one binder chain and
-    # with two gives different poses, and the file's hash cannot say which.
-    return sha256_json({"s": structure_sha, "frame": fkey, "nb": int(n_binder_chains),
+def pose_key(structure_sha: str, fkey: str, n_binder_chains: int = 1,
+             load_kw: Optional[Mapping[str, Any]] = None) -> str:
+    # The chain roles are in the key: the same file read as binder B vs binder A
+    # (RFD4) gives different poses, and the file's hash cannot say which.
+    kw = dict(load_kw or {})
+    if "n_binder_chains" not in kw and "binder_chain" not in kw:
+        kw["n_binder_chains"] = int(n_binder_chains)
+    return sha256_json({"s": structure_sha, "frame": fkey, "load": kw,
                         "code": code_hash(TF, S, pose_one, canonical_view), "v": POSE_VERSION})
 
 
@@ -548,14 +572,19 @@ def compute_poses(runs: Mapping[str, RunData], frame: TF.TargetFrame, fkey: str,
         for d in run.accepted() + run.rejected_with_structure():
             sp = str(Path(d.structure_path).resolve())
             sha = hashes.get(sp) or hashes.get(d.structure_path) or sha256_file(d.structure_path)
-            k = pose_key(sha, fkey, binder_chain_count(d))
+            lkw = load_complex_kwargs(d)
+            roles = model.design_chain_roles(d) or None
+            k = pose_key(sha, fkey, binder_chain_count(d), load_kw=lkw)
+            # Roles join the cache key so a BindCraft pose is never reused for an RFD4 file (and vice versa).
+            if roles:
+                k = sha256_json({"pose": k, "roles": roles})
             keys[(rid, d.id)] = k
             hit = _read_cached(work / "poses" / rid / f"{d.id}.json", k) if use_cache else None
             if hit is not None:
                 out[(rid, d.id)] = hit
             else:
                 todo.append((str(work / "target"), rid, d.id, d.structure_path, d.status, d.rank, d.structure_model, fkey,
-                             binder_chain_count(d)))
+                             lkw, roles))
     total = len(keys)
     cb = log.progress("poses", 25)
     if out:

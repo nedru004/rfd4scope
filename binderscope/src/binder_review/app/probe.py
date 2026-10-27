@@ -7,7 +7,7 @@ from typing import Any
 
 
 def _friendly_reader(name: str, version: Any) -> str:
-    base = {"bindcraft1": "BindCraft 1", "bindcraft2": "BindCraft 2"}.get(name, name)
+    base = {"bindcraft1": "BindCraft 1", "bindcraft2": "BindCraft 2", "rfd4": "RFdiffusion 4"}.get(name, name)
     v = str(version).split(" ")[0] if version and name == "bindcraft1" else ""
     return f"{base} {v.lstrip('v')}".strip() if v else base
 
@@ -32,8 +32,9 @@ def inspect_run(path: str) -> dict[str, Any]:
         except OSError:
             kids = []
         return {"ok": False, "children": kids,
-                "error": "This does not look like a BindCraft run folder. Choose the folder that holds the stats CSVs "
-                         "and the Accepted folder (BindCraft 1), or 1_Trajectories, 2_Refolded and 3_Ranked (BindCraft 2)."}
+                "error": "This does not look like a known run folder. Choose the folder that holds the stats CSVs "
+                         "and the Accepted folder (BindCraft 1), 1_Trajectories / 2_Refolded / 3_Ranked (BindCraft 2), "
+                         "or inference_metrics/per_example_metrics.csv (RFdiffusion 4)."}
     rid = default_run_id(folder.resolve())
     try:
         run = reader.read_run(folder, rid, settings_path=None, construct_path=None, check_structures=False, hash_structures=False)

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Mapping, Optional
 
 from .config import FilterFailure, FilterRule
 
@@ -359,6 +359,8 @@ class DesignRecord:
     ranked_path: Optional[str] = None         # accepted/Ranked/<rank>_<name>_model<k>.pdb
     metrics: dict[str, Optional[float]] = field(default_factory=dict)
     models: dict[int, dict[str, Optional[float]]] = field(default_factory=dict)
+    # Per target-chain scores (RFD4 and similar): chain letter -> {stem: value}. Gated separately from models.
+    per_chain: dict[str, dict[str, Optional[float]]] = field(default_factory=dict)
     interface_residues: list[str] = field(default_factory=list)  # "B13": chain letter plus binder residue number
     interface_aas: dict[str, dict[str, float]] = field(default_factory=dict)  # "avg", "1", "2" -> letter -> count
     design_time_s: Optional[float] = None
@@ -493,10 +495,63 @@ def binder_chain_count(design: "DesignRecord") -> int:
     simply be absent from whatever is measured.
     """
     extras = getattr(design, "extras", None) or {}     # duck-typed: termini takes objects that are not DesignRecords
+    named = extras.get("binder_chains")
+    if isinstance(named, (list, tuple)) and named:
+        return max(1, len(named))
     try:
         return max(1, int(extras.get("n_binder_chains", 1) or 1))
     except (AttributeError, TypeError, ValueError):
         return 1
+
+
+def design_binder_chains(design: "DesignRecord") -> Optional[list[str]]:
+    """Explicit binder chain letters from the reader, or None (caller uses n_binder_chains / default B)."""
+    extras = getattr(design, "extras", None) or {}
+    named = extras.get("binder_chains")
+    if isinstance(named, (list, tuple)) and named:
+        return [str(c) for c in named]
+    return None
+
+
+def design_target_chains(design: "DesignRecord") -> Optional[list[str]]:
+    """Explicit target chain letters from the reader, or None (caller keeps chain A)."""
+    extras = getattr(design, "extras", None) or {}
+    named = extras.get("target_chains")
+    if isinstance(named, (list, tuple)) and named:
+        return [str(c) for c in named]
+    return None
+
+
+def design_chain_roles(design: "DesignRecord") -> dict[str, str]:
+    """{chain: role} for target chains: require | ignore | avoid. Empty when the reader left none."""
+    extras = getattr(design, "extras", None) or {}
+    raw = extras.get("chain_roles")
+    if not isinstance(raw, Mapping):
+        return {}
+    out: dict[str, str] = {}
+    for k, v in raw.items():
+        role = str(v).strip().lower()
+        if role in ("require", "ignore", "avoid"):
+            out[str(k)] = role
+    return out
+
+
+def load_complex_kwargs(design: "DesignRecord") -> dict[str, Any]:
+    """Keyword arguments for structure.load_complex from a design's recorded chain roles.
+
+    BindCraft designs leave the lists empty and keep today's behaviour (target A, last N binder chains).
+    An RFD4 design names the designed chain as the binder and every other polymer chain as the target.
+    """
+    kwargs: dict[str, Any] = {}
+    targets = design_target_chains(design)
+    binders = design_binder_chains(design)
+    if targets:
+        kwargs["target_chains"] = targets
+    if binders:
+        kwargs["binder_chain"] = binders
+    else:
+        kwargs["n_binder_chains"] = binder_chain_count(design)
+    return kwargs
 
 
 @dataclass

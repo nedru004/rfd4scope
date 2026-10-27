@@ -185,9 +185,11 @@
   $('#name').addEventListener('input', () => { S.nameTouched = true; });
   function inputs() {
     const pc = $('#partners').value;
+    const cut = ($('#cutoffs') && $('#cutoffs').value || '').split(/\n/).map((s) => s.trim()).filter(Boolean);
     return { runs: S.runs.filter((r) => r.info).map((r) => ({ id: r.id, path: r.path, settings: r.settings || null })), target_pdb: S.target.path, reference: S.reference.path,
       reference_id: S.reference.id || null, reference_chain: $('#rchain').value || 'A', partner_chains: pc === 'custom' ? ($('#pcustom').value.trim() || 'auto') : pc,
-      uniprot: $('#uniprot').value.trim() || null, online: $('#online').checked, profile: S.profile, placement: $('#placement').value };
+      uniprot: $('#uniprot').value.trim() || null, online: $('#online').checked, profile: S.profile, placement: $('#placement').value,
+      cutoffs: cut.length ? cut : null };
   }
   let poll = null, jobId = null, since = 0, shown = [];
   function showProgress(on) { $('#form').hidden = on; $('#progress').hidden = !on; $('#bar').hidden = on; window.scrollTo(0, 0); }
@@ -259,7 +261,8 @@
       if (pc === 'auto' || pc === 'none') $('#partners').value = pc; else { $('#partners').value = 'custom'; $('#pcustom').hidden = false; $('#pcustom').value = pc; }
       $('#uniprot').value = inp.uniprot || ''; $('#online').checked = !!inp.online; if (inp.placement) $('#placement').value = inp.placement;
       if (inp.profile) { S.profile = inp.profile; $('#pinfo').textContent = baseName(inp.profile); }
-      $('#opt').open = !!(inp.uniprot || inp.profile || pc !== 'auto' || (inp.placement && inp.placement !== 'interface'));
+      if ($('#cutoffs') && inp.cutoffs && inp.cutoffs.length) $('#cutoffs').value = inp.cutoffs.join('\n');
+      $('#opt').open = !!(inp.uniprot || inp.profile || pc !== 'auto' || (inp.placement && inp.placement !== 'interface') || (inp.cutoffs && inp.cutoffs.length));
       S.retry = retry ? slug : null;
       if (S.reference) { S.keepChain = inp.reference_chain || $('#rchain').value; renderReference(true); }     // the note under the reference names the stored chain and placement
       check();

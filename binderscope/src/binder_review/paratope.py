@@ -669,9 +669,17 @@ class RunParatope:
 
 
 def has_scaffold(run: Any) -> bool:
-    """True when the run recorded a scaffold edit spec (``RunData.annotations["scaffold"]``): a scaffolded run, whatever else is true of it."""
+    """True when the run recorded a scaffold edit spec (``RunData.annotations["scaffold"]``): a scaffolded run, whatever else is true of it.
+
+    An RFD4 motif annotation (``kind: "motif"``) is not a BindCraft scaffold edit: the listed stretches are the
+    *fixed* graft, not the designed positions, so the paratope alignment does not apply.
+    """
     sc = (getattr(run, "annotations", None) or {}).get("scaffold")
-    return bool(isinstance(sc, Mapping) and sc.get("scaffold_edits"))
+    if not isinstance(sc, Mapping) or not sc.get("scaffold_edits"):
+        return False
+    if str(sc.get("kind") or "").lower() == "motif":
+        return False
+    return True
 
 
 def off_reason(run: Any) -> Optional[str]:

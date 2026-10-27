@@ -1,0 +1,399 @@
+{
+  "schema": "binderscope.profile/1",
+  "id": "rfd4",
+  "kind": "run",
+  "version": 1,
+  "brand": {
+    "name": "Binderscope"
+  },
+  "badge": {
+    "class": "run",
+    "text": "RFdiffusion 4"
+  },
+  "credit": {
+    "html": "Binder models and scores: RFdiffusion 4 with AlphaFold 3. Cutoffs are yours, not RFD4's. Scores are screens, not verdicts.",
+    "text": "RFdiffusion 4 with AlphaFold 3. Cutoffs are yours. Scores are screens, not verdicts."
+  },
+  "target": {
+    "name": "Target",
+    "short": "TGT",
+    "label": "TGT",
+    "span_label": "TGT",
+    "construct": {
+      "first": 1,
+      "last": 1,
+      "label": "construct"
+    }
+  },
+  "membrane": {
+    "plane_radius": 42,
+    "plane_half_size": 48,
+    "strip_shade": null
+  },
+  "view": {
+    "query_fit_pad": 0.92,
+    "inspector_focus": "all",
+    "inspector_zoom": 1.75,
+    "map_size_metric": "iptm"
+  },
+  "specificity": {
+    "subject": "Target",
+    "kind": "host",
+    "panel_noun": "orthologs",
+    "species": [],
+    "show": [],
+    "headline": [],
+    "detail": [],
+    "decoy_species": [],
+    "paralogs": null,
+    "rules": []
+  },
+  "predictors": {
+    "primary": {
+      "key": "af3",
+      "label": "AF3",
+      "detail": "AlphaFold 3 oracle in RFD4"
+    },
+    "rescore": [],
+    "monomer": {
+      "key": "af3_binder",
+      "label": "AF3 (designed chain)"
+    },
+    "design_model_prefix": "AF3",
+    "colors": {
+      "AF3": "#1baf7a",
+      "AF3 (oracle_ppi)": "#0b6e4f"
+    }
+  },
+  "caps": {
+    "dg": false
+  },
+  "checks": {
+    "preset_default": "rfd4",
+    "presets": {
+      "rfd4": {
+        "name": "RFD4 import defaults",
+        "v": {
+          "plddt": 0.8,
+          "ptm": 0.5,
+          "ipsae": 0.5,
+          "min_ipae": 2.0,
+          "complex_rmsd": 2.5,
+          "sc": 0.55,
+          "dg": -15,
+          "n_unsat": 4,
+          "hphob_patch": 650,
+          "hotspots": 1,
+          "binder_rmsd": 3.5,
+          "iptm_b": 0.5,
+          "ipae_norm": 0.35
+        }
+      }
+    },
+    "interface": {
+      "basis": "auto"
+    },
+    "physics": {
+      "unsat_basis": "count",
+      "sc_check": true,
+      "pack_needs_sc": true,
+      "unsat_bad_gt": 4
+    },
+    "context": {
+      "partner": {
+        "fail_n3": 10,
+        "warn_min": 4.0,
+        "warn_buried": 3
+      },
+      "rest": {
+        "fail_n3": 10,
+        "warn_min": 4.0
+      },
+      "cut": {
+        "k": 4,
+        "warn_n": 2
+      },
+      "cover": {
+        "min_area": 10,
+        "warn_n": 2
+      },
+      "near": {
+        "bad_lt": 3.0,
+        "warn_lt": 4.0,
+        "info_lt": 8.0
+      }
+    },
+    "findings": {
+      "loops": {
+        "info_ge": 0.4,
+        "sev": "warn"
+      },
+      "conf": {
+        "plddt_below": 75,
+        "min_n": 3,
+        "min_frac": 0.0
+      },
+      "gly": {
+        "ok_ge": 8.0,
+        "info_ge": null
+      },
+      "helix": {
+        "info_lt": null
+      },
+      "term": {
+        "free_ge": 12.0
+      },
+      "hotspot_rmsd_warn": 6.0
+    }
+  },
+  "rules": {
+    "groups": [
+      "Import cutoffs",
+      "Confidence",
+      "Epitope and geometry",
+      "Dimer and chain context",
+      "Specificity",
+      "Interface chemistry",
+      "Sequence"
+    ],
+    "overrides": {
+      "dsasa": {
+        "val": 800,
+        "lo": 300,
+        "hi": 3000,
+        "step": 25
+      },
+      "hb": {
+        "val": 3,
+        "lo": 0,
+        "hi": 20
+      },
+      "unsat": {
+        "val": 4,
+        "lo": 0,
+        "hi": 10,
+        "note": "BindCraft allows up to 4. A raw count grows with interface size, so keep it soft."
+      },
+      "len": {
+        "val": 100,
+        "lo": 50,
+        "hi": 130
+      }
+    },
+    "extra": [
+      {
+        "id": "brmsd",
+        "group": "Confidence",
+        "label": "Binder RMSD (binder alone vs complex)",
+        "metric": "binder_rmsd",
+        "op": "<=",
+        "val": 3.5,
+        "lo": 0.3,
+        "hi": 8,
+        "step": 0.1,
+        "dec": 1,
+        "unit": " \u00c5",
+        "on": true,
+        "note": "BindCraft Binder_RMSD: the binder predicted on its own, compared with its shape in the complex. BindCraft rejects designs above 3.5 \u00c5.",
+        "rescue": [
+          "Check the monomer",
+          "Re-predict the binder alone with a second model; discard if it still differs from the complex shape"
+        ]
+      },
+      {
+        "id": "olig",
+        "group": "Dimer and chain context",
+        "label": "Atoms within 3 \u00c5 of the other subunit",
+        "metric": "olig_n3",
+        "op": "<=",
+        "val": 9,
+        "lo": 0,
+        "hi": 200,
+        "step": 1,
+        "dec": 0,
+        "on": true,
+        "note": "The design is placed on the reference assembly. A binder that overlaps another subunit could not bind the assembled protein. Overlap fails a design; contact at the subunit interface is a warning.",
+        "rescue": [
+          "Re-run with the other subunit",
+          "Add the other subunit as fixed context, or move the binder to a face that stays exposed in the assembly"
+        ],
+        "nl": {
+          "words": "subunit|dimer|dimeric|clash|assembl",
+          "text": "At most 9 atoms within 3 \u00c5 of the other subunit",
+          "val": 9
+        }
+      },
+      {
+        "id": "olign",
+        "group": "Dimer and chain context",
+        "label": "Contacted residues at the subunit interface",
+        "metric": "olig_n",
+        "op": "<=",
+        "val": 2,
+        "lo": 0,
+        "hi": 20,
+        "step": 1,
+        "dec": 0,
+        "note": "Contacted residues that another subunit buries in the assembly. A surface that is part of the subunit interface may not exist on the assembled protein.",
+        "rescue": [
+          "Move to an exposed face",
+          "Keep as a hedge, or discard if the goal is a binder of the intact assembly"
+        ]
+      },
+      {
+        "id": "rest",
+        "group": "Dimer and chain context",
+        "label": "Atoms within 3 \u00c5 of the rest of the protein",
+        "metric": "rest_n3",
+        "op": "<=",
+        "val": 9,
+        "lo": 0,
+        "hi": 200,
+        "step": 1,
+        "dec": 0,
+        "on": true,
+        "note": "BindCraft only saw the construct. The rest of the same chain (the removed regions) is placed from the reference structure; a binder that overlaps it could not bind the full-length protein.",
+        "rescue": [
+          "Re-run with a larger target",
+          "Include the neighbouring domain in the target, or move the binder away from that face"
+        ],
+        "nl": {
+          "words": "rest of the protein|full[- ]length|removed region",
+          "text": "At most 9 atoms within 3 \u00c5 of the rest of the protein",
+          "val": 9
+        }
+      },
+      {
+        "id": "cut",
+        "group": "Dimer and chain context",
+        "label": "Contacts next to a cut end",
+        "metric": "cut_n",
+        "op": "<=",
+        "val": 1,
+        "lo": 0,
+        "hi": 20,
+        "step": 1,
+        "dec": 0,
+        "on": true,
+        "note": "Contacted residues within a few residues of a cut end of the construct, or of a deleted loop. A surface next to a cut can be exposed only because the rest of the protein is missing.",
+        "rescue": [
+          "Extend the construct",
+          "Extend the target by 10 to 15 residues and re-run, or discard"
+        ]
+      },
+      {
+        "id": "cover",
+        "group": "Dimer and chain context",
+        "label": "Contacted residues buried in the full protein",
+        "metric": "cov_n",
+        "op": "<=",
+        "val": 1,
+        "lo": 0,
+        "hi": 20,
+        "step": 1,
+        "dec": 0,
+        "note": "Contacted residues that the removed regions would bury (more than the area set in the profile). These contacts may not exist on the full-length protein.",
+        "rescue": [
+          "Extend the construct",
+          "Include the covering region in the target and re-run"
+        ]
+      }
+    ]
+  },
+  "nl": {
+    "examples": [
+      {
+        "label": "On the hotspots, fits the assembly",
+        "q": "On the hotspots, clear of the other subunit, at most 1 buried unsatisfied polar"
+      },
+      {
+        "label": "Clear of the rest of the protein",
+        "q": "Away from the rest of the protein and the cut ends, no sticky hydrophobic patch"
+      },
+      {
+        "label": "Confident but off-epitope",
+        "q": "Confident designs that do not bind the intended epitope"
+      },
+      {
+        "label": "Reset to defaults",
+        "q": "reset"
+      }
+    ],
+    "words": {
+      "epitope": [
+        "hotspot"
+      ],
+      "off_epitope_exclude": "paralog|family member"
+    }
+  },
+  "reasons": [
+    [
+      "wrong site",
+      "Binds the wrong site"
+    ],
+    [
+      "small interface",
+      "Small interface"
+    ],
+    [
+      "floppy",
+      "Floppy or loopy"
+    ],
+    [
+      "sticky",
+      "Sticky surface"
+    ],
+    [
+      "low confidence",
+      "Low confidence"
+    ],
+    [
+      "partner clash",
+      "Clashes with a chain marked avoid"
+    ],
+    [
+      "liability",
+      "Sequence liability"
+    ]
+  ],
+  "flag_region": null,
+  "import": {
+    "title": "Import an RFdiffusion 4 run",
+    "files": [],
+    "files_extra": [],
+    "cards": [
+      {
+        "column": "right",
+        "title": "Detected: RFdiffusion 4 \u00b7 {n_runs} runs",
+        "html": "{n_designs} designs that pass your import cutoffs, plus {n_rejected} that miss them (kept for near-miss rescue). Acceptance is your cutoffs, applied per required target chain; RFD4's own motif_scaffold.pass is shown beside them. Families appear only when beam-search siblings share a backbone."
+      },
+      {
+        "column": "right",
+        "title": "Target frame",
+        "html": "Every target chain the design engages is the target. Per-chain AF3 scores (ipTM, min iPAE) gate acceptance: a design must clear the bar on each required chain. Partner chains are drawn as structures, not CA traces."
+      },
+      {
+        "column": "right",
+        "title": "Read, recomputed, missing",
+        "html": "<b>Read:</b> AF3 oracle scores (pLDDT, ipTM, iPAE, ranking, clash, motif and backbone RMSD when present), per-partner pairwise scores, contig motif segments and C_HOT hotspots.<br><b>Recomputed:</b> interface on each target chain, H-bonds, buried area, context against avoid-marked partners, the design/re-score pair (generated vs AF3 refold).<br><b>Not available:</b> Rosetta block, MPNN scores, PAE matrix / ipSAE, per-validation-model columns. Those meters switch off."
+      }
+    ]
+  },
+  "text": {
+    "inspector.struct_sub": " \u00b7 target {@target.span_label}",
+    "badge.title.board": "Designs and scores come from RFdiffusion 4 with AlphaFold 3. The analysed pose is the AF3 refold; the dashed ghost is the generated design. Cutoffs are yours. Every score is a screen, not a verdict.",
+    "badge.title.inspector": "Binder models are RFD4 AF3 complexes. Contacts, hydrogen bonds, buried polars and context checks are recomputed. Per-chain AF3 scores gate acceptance on every required partner.",
+    "badge.title.map": "Designs and scores come from RFdiffusion 4. Where orthologs or paralogs were given, they are UniProt sequences aligned to the target construct.",
+    "badge.title.query": "Designs and scores come from RFdiffusion 4, accepted and rejected under your import cutoffs. Rules are typed and editable.",
+    "board.focus.dashed": "dashed = design (before AF3) \u00b7 {rmsd} \u00c5 from AF3",
+    "board.focus.default": "AF3 refolded complex",
+    "verdict.ctx_olig": "Clashes with a chain marked avoid",
+    "features.rescore_pose": "AF3 pose matches the design",
+    "query.funnel.first": "Generated",
+    "inspector.tool.olig": "Partner chain",
+    "view.olig.trace": "partner (chain {chain})",
+    "finding.ctx.olig.bad.title": "Overlaps a chain marked avoid",
+    "finding.ctx.olig.warn.title": "Touches a chain marked avoid",
+    "finding.ctx.olig.ok.title": "Clear of avoid-marked chains ({dm0} \u00c5)"
+  }
+}
